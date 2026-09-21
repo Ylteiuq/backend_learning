@@ -12,6 +12,9 @@ public:
     UserRepository();
     ~UserRepository();
 
+    UserRepository(const UserRepository&) = delete;
+    UserRepository& operator=(const UserRepository&) = delete;
+
     User save(
         const User& user
     );

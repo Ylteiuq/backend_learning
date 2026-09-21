@@ -1,7 +1,26 @@
 #include "repository/UserRepository.h"
 
+#include <memory>
 #include <sqlite3.h>
 #include <stdexcept>
+#include <string>
+
+namespace
+{
+    struct StatementDeleter
+    {
+        void operator()(sqlite3_stmt* statement) const noexcept
+        {
+            if(statement != nullptr)
+            {
+                sqlite3_finalize(statement);
+            }
+        }
+    };
+
+    using StatementPtr =
+        std::unique_ptr<sqlite3_stmt, StatementDeleter>;
+}
 
 UserRepository::UserRepository()
     : db_(nullptr)
@@ -14,9 +33,18 @@ UserRepository::UserRepository()
 
     if(result != SQLITE_OK)
     {
-        throw std::runtime_error(
-            "failed to open database"
-        );
+        const std::string message =
+            db_ != nullptr
+                ? sqlite3_errmsg(db_)
+                : "failed to open database";
+
+        if(db_ != nullptr)
+        {
+            sqlite3_close(db_);
+            db_ = nullptr;
+        }
+
+        throw std::runtime_error(message);
     }
 
     const char* sql = R"(
@@ -45,6 +73,8 @@ UserRepository::UserRepository()
                 ? errorMessage
                 : "failed to create users table";
         sqlite3_free(errorMessage);
+        sqlite3_close(db_);
+        db_ = nullptr;
         throw std::runtime_error(message);
     }
 }
@@ -64,16 +94,18 @@ User UserRepository::save(
     const char* sql =
         "INSERT INTO users (name, age) VALUES (?, ?);";
 
-    sqlite3_stmt* statement = nullptr;
+    sqlite3_stmt* rawStatement = nullptr;
 
     int result =
         sqlite3_prepare_v2(
             db_,
             sql,
             -1,
-            &statement,
+            &rawStatement,
             nullptr
         );
+
+    StatementPtr statement(rawStatement);
 
     if(result != SQLITE_OK)
     {
@@ -82,33 +114,39 @@ User UserRepository::save(
         );
     }
 
-    sqlite3_bind_text(
-        statement,
+    if(sqlite3_bind_text(
+        statement.get(),
         1,
         user.name.c_str(),
         -1,
         SQLITE_TRANSIENT
-    );
-
-    sqlite3_bind_int(
-        statement,
-        2,
-        user.age
-    );
-
-    result =
-        sqlite3_step(statement);
-
-    if(result != SQLITE_DONE)
+    ) != SQLITE_OK)
     {
-        sqlite3_finalize(statement);
-
         throw std::runtime_error(
             sqlite3_errmsg(db_)
         );
     }
 
-    sqlite3_finalize(statement);
+    if(sqlite3_bind_int(
+        statement.get(),
+        2,
+        user.age
+    ) != SQLITE_OK)
+    {
+        throw std::runtime_error(
+            sqlite3_errmsg(db_)
+        );
+    }
+
+    result =
+        sqlite3_step(statement.get());
+
+    if(result != SQLITE_DONE)
+    {
+        throw std::runtime_error(
+            sqlite3_errmsg(db_)
+        );
+    }
 
     User savedUser = user;
 
@@ -127,16 +165,18 @@ std::optional<User> UserRepository::findById(
     const char* sql =
         "SELECT id, name, age FROM users WHERE id = ?;";
 
-    sqlite3_stmt* statement = nullptr;
+    sqlite3_stmt* rawStatement = nullptr;
 
     int result =
         sqlite3_prepare_v2(
             db_,
             sql,
             -1,
-            &statement,
+            &rawStatement,
             nullptr
         );
+
+    StatementPtr statement(rawStatement);
 
     if(result != SQLITE_OK)
     {
@@ -147,57 +187,51 @@ std::optional<User> UserRepository::findById(
 
     result =
         sqlite3_bind_int(
-            statement,
+            statement.get(),
             1,
             id
         );
 
     if(result != SQLITE_OK)
     {
-        sqlite3_finalize(statement);
-
         throw std::runtime_error(
             sqlite3_errmsg(db_)
         );
     }
 
     result =
-        sqlite3_step(statement);
+        sqlite3_step(statement.get());
 
     if(result == SQLITE_DONE)
     {
-        sqlite3_finalize(statement);
         return std::nullopt;
     }
 
     if(result != SQLITE_ROW)
     {
-        sqlite3_finalize(statement);
-
         throw std::runtime_error(
             sqlite3_errmsg(db_)
         );
     }
 
-    User user;
+    User user{};
     user.id =
         sqlite3_column_int(
-            statement,
+            statement.get(),
             0
         );
     user.name =
         reinterpret_cast<const char*>(
             sqlite3_column_text(
-                statement,
+                statement.get(),
                 1
             )
         );
     user.age =
         sqlite3_column_int(
-            statement,
+            statement.get(),
             2
         );
 
-    sqlite3_finalize(statement);
     return user;
 }
