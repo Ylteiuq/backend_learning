@@ -1,0 +1,149 @@
+#include "UserController.h"
+
+#include <json/json.h>
+
+#include <optional>
+#include <string>
+#include <utility>
+
+namespace
+{
+    std::optional<std::string> validateCreateUserBody(
+        const Json::Value& body
+    )
+    {
+        if(!body.isObject())
+        {
+            return "request body must be a JSON object";
+        }
+
+        if(!body.isMember("name"))
+        {
+            return "name is required";
+        }
+
+        if(!body.isMember("age"))
+        {
+            return "age is required";
+        }
+
+        if(!body["name"].isString())
+        {
+            return "name must be a string";
+        }
+
+        if(!body["age"].isInt())
+        {
+            return "age must be an integer";
+        }
+
+        return std::nullopt;
+    }
+
+    drogon::HttpResponsePtr makeJsonResponse(
+        Json::Value body,
+        drogon::HttpStatusCode status
+    )
+    {
+        auto response =
+            drogon::HttpResponse::newHttpJsonResponse(
+                std::move(body)
+            );
+
+        response->setStatusCode(status);
+        return response;
+    }
+
+    drogon::HttpResponsePtr makeErrorResponse(
+        const std::string& message,
+        drogon::HttpStatusCode status
+    )
+    {
+        Json::Value body;
+        body["error"] = message;
+
+        return makeJsonResponse(
+            std::move(body),
+            status
+        );
+    }
+}
+
+void UserController::getById(
+    const drogon::HttpRequestPtr&,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    int id
+)
+{
+    const auto user = userService_.getUserById(id);
+
+    if(!user)
+    {
+        callback(
+            makeErrorResponse(
+                "User not found",
+                drogon::k404NotFound
+            )
+        );
+        return;
+    }
+
+    Json::Value body;
+    body["id"] = user->id;
+    body["name"] = user->name;
+    body["age"] = user->age;
+
+    callback(
+        makeJsonResponse(
+            std::move(body),
+            drogon::k200OK
+        )
+    );
+}
+
+void UserController::createUser(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback
+)
+{
+    const auto json = req->getJsonObject();
+
+    if(!json)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid JSON or Content-Type must be application/json",
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
+    if(const auto validationError = validateCreateUserBody(*json))
+    {
+        callback(
+            makeErrorResponse(
+                *validationError,
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
+    const std::string name = (*json)["name"].asString();
+    const int age = (*json)["age"].asInt();
+
+    const User user = userService_.createUser(name, age);
+
+    Json::Value body;
+    body["id"] = user.id;
+    body["name"] = user.name;
+    body["age"] = user.age;
+
+    callback(
+        makeJsonResponse(
+            std::move(body),
+            drogon::k201Created
+        )
+    );
+}
