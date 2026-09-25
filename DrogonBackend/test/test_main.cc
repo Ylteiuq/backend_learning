@@ -4,7 +4,21 @@
 
 DROGON_TEST(BasicTest)
 {
-    // Add your tests here
+    using namespace drogon;
+
+    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    
+    HttpRequestPtr req = HttpRequest::newHttpRequest();
+    req->setPath("/users");
+    req->setMethod(Post);
+    req->setContentTypeCode(CT_APPLICATION_JSON);
+    req->setBody("not-json");
+
+    client->sendRequest(req, [TEST_CTX](ReqResult result, const HttpResponsePtr& resp) {
+        REQUIRE(result == ReqResult::Ok);
+        REQUIRE(resp != nullptr);
+        REQUIRE(resp->getStatusCode() == k400BadRequest);
+    });
 }
 
 int main(int argc, char** argv) 
