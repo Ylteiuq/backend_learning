@@ -1,9 +1,12 @@
 {
-  "rdbms": "sqlite3",
-  "filename": "drogon_backend.db",
-  "tables": ["users"],
-  "relationships": {
-    "enabled": false,
-    "items": []
+  "db_clients": [
+    {
+      "name": "default",
+      "rdbms": "sqlite3",
+      "filename": "drogon_backend.db"
+    }
+  ],
+  "app": {
+    "number_of_threads": 1
   }
 }

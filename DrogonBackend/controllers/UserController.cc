@@ -6,6 +6,11 @@
 #include <string>
 #include <utility>
 
+#include <drogon/orm/Mapper.h>
+#include <trantor/utils/Logger.h>
+
+#include "models/Users.h"
+
 namespace
 {
     std::optional<std::string> validateCreateUserBody(
@@ -75,30 +80,77 @@ void UserController::getById(
     int id
 )
 {
-    const auto user = userService_.getUserById(id);
+    using UserModel = drogon_model::sqlite3::Users;
 
-    if(!user)
-    {
-        callback(
-            makeErrorResponse(
-                "User not found",
-                drogon::k404NotFound
-            )
-        );
-        return;
-    }
+    auto dbClient = drogon::app().getDbClient("default");
+    drogon::orm::Mapper<UserModel> mapper(dbClient);
 
-    Json::Value body;
-    body["id"] = user->id;
-    body["name"] = user->name;
-    body["age"] = user->age;
+    auto databaseErrorCallback = callback;
 
-    callback(
-        makeJsonResponse(
-            std::move(body),
-            drogon::k200OK
-        )
+    mapper.findByPrimaryKey(
+        id,
+        [callback = std::move(callback)](UserModel&& user){
+            callback(
+                makeJsonResponse(
+                    user.toJson(),
+                    drogon::k200OK
+                )
+            );
+        },
+        [callback = std::move(databaseErrorCallback)](
+            const drogon::orm::DrogonDbException& error
+        ){
+            const auto* unexpectedRows =
+                dynamic_cast<const drogon::orm::UnexpectedRows*>(
+                    &error.base()
+                );
+            
+            if(unexpectedRows != nullptr)
+            {
+                callback(
+                    makeErrorResponse(
+                        "User not found",
+                        drogon::k404NotFound
+                    )
+                );
+                return;
+            }
+
+            LOG_ERROR << "Failed to find user: "
+                << error.base().what();
+
+            callback(
+                makeErrorResponse(
+                    "Datebase error",
+                    drogon::k500InternalServerError
+                )
+            );
+        }
     );
+    // const auto user = userService_.getUserById(id);
+
+    // if(!user)
+    // {
+    //     callback(
+    //         makeErrorResponse(
+    //             "User not found",
+    //             drogon::k404NotFound
+    //         )
+    //     );
+    //     return;
+    // }
+
+    // Json::Value body;
+    // body["id"] = user->id;
+    // body["name"] = user->name;
+    // body["age"] = user->age;
+
+    // callback(
+    //     makeJsonResponse(
+    //         std::move(body),
+    //         drogon::k200OK
+    //     )
+    // );
 }
 
 void UserController::createUser(
