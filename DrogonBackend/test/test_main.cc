@@ -6,19 +6,58 @@ DROGON_TEST(BasicTest)
 {
     using namespace drogon;
 
-    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
     
-    HttpRequestPtr req = HttpRequest::newHttpRequest();
-    req->setPath("/users");
-    req->setMethod(Post);
-    req->setContentTypeCode(CT_APPLICATION_JSON);
-    req->setBody("not-json");
+    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    {    
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users");
+        req->setMethod(Post);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+        req->setBody("not-json");
 
-    client->sendRequest(req, [TEST_CTX](ReqResult result, const HttpResponsePtr& resp) {
-        REQUIRE(result == ReqResult::Ok);
-        REQUIRE(resp != nullptr);
-        REQUIRE(resp->getStatusCode() == k400BadRequest);
-    });
+        client->sendRequest(req, [TEST_CTX](ReqResult result, const HttpResponsePtr& resp) {
+            REQUIRE(result == ReqResult::Ok);
+            REQUIRE(resp != nullptr);
+            REQUIRE(resp->getStatusCode() == k400BadRequest);
+        });
+    }
+
+    {
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users");
+        req->setBody(R"({"name":"Alice"})");
+        req->setMethod(Post);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+
+        client->sendRequest(req, [TEST_CTX](ReqResult result, const HttpResponsePtr& resp){
+            REQUIRE(result == ReqResult::Ok);
+            REQUIRE(resp != nullptr);
+            REQUIRE(resp->getStatusCode() == k400BadRequest);
+        });
+    }
+}
+
+DROGON_TEST(normalTest)
+{
+    using namespace drogon;
+
+    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    {
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users");
+        req->setMethod(Post);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+        req->setBody(R"({"name":"Alice","age":30})");
+
+        client->sendRequest(req, [TEST_CTX](ReqResult result, const HttpResponsePtr& resp) {
+            REQUIRE(result == ReqResult::Ok);
+            REQUIRE(resp != nullptr);
+            CHECK(resp->getStatusCode() == k201Created);
+            auto json = resp->getJsonObject();
+            CHECK((*json)["name"] == "Alice");
+            CHECK((*json)["age"] == 30);
+        });
+    }
 }
 
 int main(int argc, char** argv) 
