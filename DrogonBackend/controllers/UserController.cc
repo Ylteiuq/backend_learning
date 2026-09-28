@@ -127,30 +127,6 @@ void UserController::getById(
             );
         }
     );
-    // const auto user = userService_.getUserById(id);
-
-    // if(!user)
-    // {
-    //     callback(
-    //         makeErrorResponse(
-    //             "User not found",
-    //             drogon::k404NotFound
-    //         )
-    //     );
-    //     return;
-    // }
-
-    // Json::Value body;
-    // body["id"] = user->id;
-    // body["name"] = user->name;
-    // body["age"] = user->age;
-
-    // callback(
-    //     makeJsonResponse(
-    //         std::move(body),
-    //         drogon::k200OK
-    //     )
-    // );
 }
 
 void UserController::createUser(
@@ -185,17 +161,39 @@ void UserController::createUser(
     const std::string name = (*json)["name"].asString();
     const int age = (*json)["age"].asInt();
 
-    const User user = userService_.createUser(name, age);
+    using UserModel = drogon_model::sqlite3::Users;
 
-    Json::Value body;
-    body["id"] = user.id;
-    body["name"] = user.name;
-    body["age"] = user.age;
+    UserModel user;
+    user.setName(name);
+    user.setAge(age);
 
-    callback(
-        makeJsonResponse(
-            std::move(body),
-            drogon::k201Created
-        )
+    auto dbClient = drogon::app().getDbClient("default");
+    drogon::orm::Mapper<UserModel> mapper(dbClient);
+
+    auto databaseErrorCallback = callback;
+
+    mapper.insert(
+        user,
+        [callback = std::move(callback)](UserModel insertedUser){
+            callback(
+                makeJsonResponse(
+                    insertedUser.toJson(),
+                    drogon::k201Created
+                )
+            );
+        },
+        [callback = std::move(databaseErrorCallback)](
+            const drogon::orm::DrogonDbException& error
+        ){
+            LOG_ERROR << "Failed to create user"
+                << error.base().what();
+
+            callback(
+                makeErrorResponse(
+                    "Database error",
+                    drogon::k500InternalServerError
+                )
+            );
+        }
     );
 }
