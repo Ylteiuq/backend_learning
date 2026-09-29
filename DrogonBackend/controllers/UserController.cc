@@ -5,6 +5,9 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <charconv>
+#include <cstdint>
+#include <system_error>
 
 #include <drogon/orm/Mapper.h>
 #include <trantor/utils/Logger.h>
@@ -77,9 +80,30 @@ namespace
 void UserController::getById(
     const drogon::HttpRequestPtr&,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-    int id
+    const std::string id
 )
 {
+    std::int64_t parseId = 0;
+
+    const auto [end,error] = std::from_chars(
+        id.data(),
+        id.data() + id.size(),
+        parseId
+    );
+
+    if(error != std::errc{} ||
+        end != id.data() + id.size() ||
+        parseId <= 0)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid user id",
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
     using UserModel = drogon_model::sqlite3::Users;
 
     auto dbClient = drogon::app().getDbClient("default");
@@ -88,7 +112,7 @@ void UserController::getById(
     auto databaseErrorCallback = callback;
 
     mapper.findByPrimaryKey(
-        id,
+        parseId,
         [callback = std::move(callback)](UserModel&& user){
             callback(
                 makeJsonResponse(
@@ -121,7 +145,7 @@ void UserController::getById(
 
             callback(
                 makeErrorResponse(
-                    "Datebase error",
+                    "Database error",
                     drogon::k500InternalServerError
                 )
             );

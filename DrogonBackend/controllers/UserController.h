@@ -1,10 +1,9 @@
 #pragma once
 
-#include "service/UserService.h"
-
 #include <drogon/HttpController.h>
 
 #include <functional>
+#include <string>
 
 class UserController : public drogon::HttpController<UserController>
 {
@@ -17,14 +16,11 @@ public:
     void getById(
         const drogon::HttpRequestPtr& req,
         std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-        int id
+        const std::string id
     );
 
     void createUser(
         const drogon::HttpRequestPtr& req,
         std::function<void(const drogon::HttpResponsePtr&)>&& callback
     );
-
-private:
-    UserService userService_;
 };
