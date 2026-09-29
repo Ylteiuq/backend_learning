@@ -2,12 +2,15 @@
 
 #include <json/json.h>
 
+#include <charconv>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
-#include <utility>
-#include <charconv>
-#include <cstdint>
 #include <system_error>
+#include <utility>
+#include <vector>
 
 #include <drogon/orm/Mapper.h>
 #include <trantor/utils/Logger.h>
@@ -16,6 +19,30 @@
 
 namespace
 {
+    std::optional<std::int64_t> parseInt64(
+        const std::string& value
+    )
+    {
+        if(value.empty())
+        {
+            return std::nullopt;
+        }
+
+        std::int64_t parsedValue = 0;
+        const auto [end, error] = std::from_chars(
+            value.data(),
+            value.data() + value.size(),
+            parsedValue
+        );
+
+        if(error != std::errc{} || end != value.data() + value.size())
+        {
+            return std::nullopt;
+        }
+
+        return parsedValue;
+    }
+
     std::optional<std::string> validateCreateUserBody(
         const Json::Value& body
     )
@@ -80,20 +107,11 @@ namespace
 void UserController::getById(
     const drogon::HttpRequestPtr&,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback,
-    const std::string id
+    std::string id
 )
 {
-    std::int64_t parseId = 0;
-
-    const auto [end,error] = std::from_chars(
-        id.data(),
-        id.data() + id.size(),
-        parseId
-    );
-
-    if(error != std::errc{} ||
-        end != id.data() + id.size() ||
-        parseId <= 0)
+    const auto parsedId = parseInt64(id);
+    if(!parsedId || *parsedId <= 0)
     {
         callback(
             makeErrorResponse(
@@ -112,7 +130,7 @@ void UserController::getById(
     auto databaseErrorCallback = callback;
 
     mapper.findByPrimaryKey(
-        parseId,
+        *parsedId,
         [callback = std::move(callback)](UserModel&& user){
             callback(
                 makeJsonResponse(
@@ -220,4 +238,115 @@ void UserController::createUser(
             );
         }
     );
+}
+
+void UserController::listUsers(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback
+)
+{
+    const auto& pageParameter = req->getParameter("page");
+    const auto& perPageParameter = req->getParameter("per_page");
+
+    const auto page = pageParameter.empty()
+        ? std::optional<std::int64_t>{1}
+        : parseInt64(pageParameter);
+    if(!page || *page <= 0)
+    {
+        callback(
+            makeErrorResponse(
+                "page must be a positive integer",
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
+    const auto perPage = perPageParameter.empty()
+        ? std::optional<std::int64_t>{10}
+        : parseInt64(perPageParameter);
+    if(!perPage || *perPage <= 0 || *perPage > 100)
+    {
+        callback(
+            makeErrorResponse(
+                "per_page must be an integer between 1 and 100",
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
+    const auto pageNumber = static_cast<std::uint64_t>(*page);
+    const auto perPageNumber = static_cast<std::uint64_t>(*perPage);
+    const auto maxSize = static_cast<std::uint64_t>(
+        std::numeric_limits<std::size_t>::max()
+    );
+    const auto maxDatabaseOffset = static_cast<std::uint64_t>(
+        std::numeric_limits<std::int64_t>::max()
+    );
+    if(pageNumber > maxSize ||
+       pageNumber - 1 > maxSize / perPageNumber ||
+       pageNumber - 1 > maxDatabaseOffset / perPageNumber)
+    {
+        callback(
+            makeErrorResponse(
+                "page is too large",
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
+    using UserModel = drogon_model::sqlite3::Users;
+
+    auto dbClient = drogon::app().getDbClient("default");
+    drogon::orm::Mapper<UserModel> mapper(dbClient);
+
+    auto databaseErrorCallback = callback;
+    const auto pageValue = *page;
+    const auto perPageValue = *perPage;
+
+    mapper.orderBy(UserModel::Cols::_id)
+        .paginate(
+            static_cast<std::size_t>(pageNumber),
+            static_cast<std::size_t>(perPageNumber)
+        )
+        .findAll(
+            [callback = std::move(callback), pageValue, perPageValue](
+                std::vector<UserModel> users
+            )
+            {
+                Json::Value userJson(Json::arrayValue);
+                for(const auto& user : users)
+                {
+                    userJson.append(user.toJson());
+                }
+
+                Json::Value body;
+                body["users"] = std::move(userJson);
+                body["page"] = static_cast<Json::Int64>(pageValue);
+                body["per_page"] = static_cast<Json::Int64>(perPageValue);
+
+                callback(
+                    makeJsonResponse(
+                        std::move(body),
+                        drogon::k200OK
+                    )
+                );
+            },
+            [callback = std::move(databaseErrorCallback)](
+                const drogon::orm::DrogonDbException& error
+            )
+            {
+                LOG_ERROR << "Failed to list users: "
+                          << error.base().what();
+
+                callback(
+                    makeErrorResponse(
+                        "Database error",
+                        drogon::k500InternalServerError
+                    )
+                );
+            }
+        );
 }
