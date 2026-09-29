@@ -1,0 +1,12 @@
+{
+  "db_clients": [
+    {
+      "name": "default",
+      "rdbms": "sqlite3",
+      "filename": "test_drogon_backend.db"
+    }
+  ],
+  "app": {
+    "number_of_threads": 1
+  }
+}
