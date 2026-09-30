@@ -153,7 +153,7 @@ DROGON_TEST(userListTest)
         req->setPath("/users");
         req->setMethod(Get);
         req->setContentTypeCode(CT_APPLICATION_JSON);
-        
+
         client->sendRequest(
             req,
             [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
@@ -167,16 +167,20 @@ DROGON_TEST(userListTest)
                 REQUIRE(json != nullptr);
                 CHECK((*json)["page"] == 1);
                 CHECK((*json)["per_page"] == 10);
+                REQUIRE((*json)["users"].isArray());
+                CHECK((*json)["users"].size() <= 10);
             }
         );
     }
 
     {
         HttpRequestPtr req = HttpRequest::newHttpRequest();
-        req->setPath("/users?page=1&per_page=10");
+        req->setPath("/users");
+        req->setQueryParameter("page", "2");
+        req->setQueryParameter("per_page", "1");
         req->setMethod(Get);
         req->setContentTypeCode(CT_APPLICATION_JSON);
-        
+
         client->sendRequest(
             req,
             [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
@@ -188,15 +192,18 @@ DROGON_TEST(userListTest)
                 auto json = resp->getJsonObject();
 
                 REQUIRE(json != nullptr);
-                CHECK((*json)["page"] == 1);
-                CHECK((*json)["per_page"] == 10);
+                CHECK((*json)["page"] == 2);
+                CHECK((*json)["per_page"] == 1);
+                REQUIRE((*json)["users"].isArray());
+                CHECK((*json)["users"].size() <= 1);
             }
         );
     }
-    
+
     {
         HttpRequestPtr req = HttpRequest::newHttpRequest();
-        req->setPath("/users?page=abc");
+        req->setPath("/users");
+        req->setQueryParameter("page", "abc");
         req->setMethod(Get);
         req->setContentTypeCode(CT_APPLICATION_JSON);
 
@@ -213,7 +220,32 @@ DROGON_TEST(userListTest)
 
     {
         HttpRequestPtr req = HttpRequest::newHttpRequest();
-        req->setPath("/users?page=999999");
+        req->setPath("/users");
+        req->setQueryParameter("page", "9223372036854775807");
+        req->setQueryParameter("per_page", "1");
+        req->setMethod(Get);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+
+        client->sendRequest(
+            req,
+            [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
+            {
+                REQUIRE(result == ReqResult::Ok);
+                REQUIRE(resp != nullptr);
+                REQUIRE(resp->getStatusCode() == k200OK);
+
+                const auto json = resp->getJsonObject();
+                REQUIRE(json != nullptr);
+                REQUIRE((*json)["users"].isArray());
+                CHECK((*json)["users"].empty());
+            }
+        );
+    }
+
+    {
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users");
+        req->setQueryParameter("per_page", "101");
         req->setMethod(Get);
         req->setContentTypeCode(CT_APPLICATION_JSON);
 
@@ -228,19 +260,48 @@ DROGON_TEST(userListTest)
         );
     }
 
+    struct PaginationCase
     {
-        HttpRequestPtr req = HttpRequest::newHttpRequest();
-        req->setPath("/users?per_page=100");
+        std::string key;
+        std::string value;
+        HttpStatusCode expectedStatus;
+    };
+    const PaginationCase cases[]{
+        {"page", "0", k400BadRequest},
+        {"page", "-1", k400BadRequest},
+        {"per_page", "0", k400BadRequest},
+        {"per_page", "abc", k400BadRequest},
+        {"per_page", "100", k200OK}
+    };
+    for(const auto& testCase : cases)
+    {
+        auto req = HttpRequest::newHttpRequest();
+        req->setPath("/users");
         req->setMethod(Get);
-        req->setContentTypeCode(CT_APPLICATION_JSON);
-
+        req->setQueryParameter(testCase.key, testCase.value);
         client->sendRequest(
             req,
-            [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
+            [TEST_CTX, testCase](ReqResult result, const HttpResponsePtr& resp)
             {
                 REQUIRE(result == ReqResult::Ok);
                 REQUIRE(resp != nullptr);
-                REQUIRE(resp->getStatusCode() == k400BadRequest);
+                REQUIRE(resp->getStatusCode() == testCase.expectedStatus);
+                const auto json = resp->getJsonObject();
+                REQUIRE(json != nullptr);
+                if(testCase.expectedStatus == k400BadRequest)
+                {
+                    REQUIRE((*json)["error"].isString());
+                    CHECK(!(*json)["error"].asString().empty());
+                    return;
+                }
+                CHECK((*json)["per_page"] == 100);
+                const auto& users = (*json)["users"];
+                REQUIRE(users.isArray());
+                CHECK(users.size() <= 100);
+                for(Json::ArrayIndex i = 1; i < users.size(); ++i)
+                {
+                    CHECK(users[i - 1]["id"].asInt64() < users[i]["id"].asInt64());
+                }
             }
         );
     }
