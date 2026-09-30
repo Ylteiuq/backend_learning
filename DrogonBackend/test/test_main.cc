@@ -91,7 +91,7 @@ DROGON_TEST(errorGetTest)
     }
 }
 
-DROGON_TEST(normalTest)
+DROGON_TEST(createAndGetTest)
 {
     using namespace drogon;
 
@@ -140,6 +140,110 @@ DROGON_TEST(normalTest)
             );
         }
     );
+}
+
+DROGON_TEST(userListTest)
+{
+    using namespace drogon;
+
+    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+
+    {
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users");
+        req->setMethod(Get);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+        
+        client->sendRequest(
+            req,
+            [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
+            {
+                REQUIRE(result == ReqResult::Ok);
+                REQUIRE(resp != nullptr);
+                REQUIRE(resp->getStatusCode() == k200OK);
+
+                auto json = resp->getJsonObject();
+
+                REQUIRE(json != nullptr);
+                CHECK((*json)["page"] == 1);
+                CHECK((*json)["per_page"] == 10);
+            }
+        );
+    }
+
+    {
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users?page=1&per_page=10");
+        req->setMethod(Get);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+        
+        client->sendRequest(
+            req,
+            [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
+            {
+                REQUIRE(result == ReqResult::Ok);
+                REQUIRE(resp != nullptr);
+                REQUIRE(resp->getStatusCode() == k200OK);
+
+                auto json = resp->getJsonObject();
+
+                REQUIRE(json != nullptr);
+                CHECK((*json)["page"] == 1);
+                CHECK((*json)["per_page"] == 10);
+            }
+        );
+    }
+    
+    {
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users?page=abc");
+        req->setMethod(Get);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+
+        client->sendRequest(
+            req,
+            [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
+            {
+                REQUIRE(result == ReqResult::Ok);
+                REQUIRE(resp != nullptr);
+                REQUIRE(resp->getStatusCode() == k400BadRequest);
+            }
+        );
+    }
+
+    {
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users?page=999999");
+        req->setMethod(Get);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+
+        client->sendRequest(
+            req,
+            [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
+            {
+                REQUIRE(result == ReqResult::Ok);
+                REQUIRE(resp != nullptr);
+                REQUIRE(resp->getStatusCode() == k400BadRequest);
+            }
+        );
+    }
+
+    {
+        HttpRequestPtr req = HttpRequest::newHttpRequest();
+        req->setPath("/users?per_page=100");
+        req->setMethod(Get);
+        req->setContentTypeCode(CT_APPLICATION_JSON);
+
+        client->sendRequest(
+            req,
+            [TEST_CTX](ReqResult result, const HttpResponsePtr& resp)
+            {
+                REQUIRE(result == ReqResult::Ok);
+                REQUIRE(resp != nullptr);
+                REQUIRE(resp->getStatusCode() == k400BadRequest);
+            }
+        );
+    }
 }
 
 int main(int argc, char** argv)
