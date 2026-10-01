@@ -350,3 +350,97 @@ void UserController::listUsers(
             }
         );
 }
+
+void UserController::updateUser(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    std::string id
+)
+{
+    const auto parseId = parseInt64(id);
+    if(!parseId || *parseId <= 0)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid id",
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
+    const auto json = req->getJsonObject();
+
+    if(json == nullptr){
+        callback(
+            makeErrorResponse(
+                "invalid json",
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
+    if(const auto error = validateCreateUserBody(*json))
+    {
+        callback(
+            makeErrorResponse(
+                *error,
+                drogon::k400BadRequest
+            )
+        );
+        return;
+    }
+
+    using UserModel = drogon_model::sqlite3::Users;
+
+    UserModel user;
+    user.setId(*parseId);
+    user.setName((*json)["name"].asString());
+    user.setAge((*json)["age"].asInt());
+
+    auto dbClient = drogon::app().getDbClient("default");
+    drogon::orm::Mapper<UserModel> mapper(dbClient);
+
+    auto databaseErrorCallback = callback;
+
+    mapper.update(
+        user,
+        [callback = std::move(callback), user](
+            std::size_t affectedRows
+        )
+        {
+            if(affectedRows == 0)
+            {
+                callback(
+                    makeErrorResponse(
+                        "User not found",
+                        drogon::k404NotFound
+                    )
+                );
+                return;
+            }
+
+            callback(
+                makeJsonResponse(
+                    user.toJson(),
+                    drogon::k204NoContent
+                )
+            );
+        },
+        [callback = std::move(databaseErrorCallback)](
+            const drogon::orm::DrogonDbException& error
+        )
+        {
+            LOG_ERROR << "Failed to update user: "
+                << error.base().what();
+
+            callback(
+                makeErrorResponse(
+                    "Database error",
+                    drogon::k500InternalServerError
+                )
+            );
+        }
+    );
+}

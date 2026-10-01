@@ -12,6 +12,7 @@ public:
     ADD_METHOD_TO(UserController::getById, "/users/{1}", drogon::Get);
     ADD_METHOD_TO(UserController::createUser, "/users", drogon::Post);
     ADD_METHOD_TO(UserController::listUsers, "/users", drogon::Get);
+    ADD_METHOD_TO(UserController::updateUser, "/users/{1}", drogon::Put);
     METHOD_LIST_END
 
     void getById(
@@ -28,5 +29,11 @@ public:
     void listUsers(
         const drogon::HttpRequestPtr& req,
         std::function<void(const drogon::HttpResponsePtr&)>&& callback
+    );
+
+    void updateUser(
+        const drogon::HttpRequestPtr& req,
+        std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+        std::string id
     );
 };
