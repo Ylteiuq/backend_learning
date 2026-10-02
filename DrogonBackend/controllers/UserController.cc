@@ -357,12 +357,12 @@ void UserController::updateUser(
     std::string id
 )
 {
-    const auto parseId = parseInt64(id);
-    if(!parseId || *parseId <= 0)
+    const auto parsedId = parseInt64(id);
+    if(!parsedId || *parsedId <= 0)
     {
         callback(
             makeErrorResponse(
-                "invalid id",
+                "invalid user id",
                 drogon::k400BadRequest
             )
         );
@@ -371,21 +371,22 @@ void UserController::updateUser(
 
     const auto json = req->getJsonObject();
 
-    if(json == nullptr){
+    if(!json)
+    {
         callback(
             makeErrorResponse(
-                "invalid json",
+                "invalid JSON or Content-Type must be application/json",
                 drogon::k400BadRequest
             )
         );
         return;
     }
 
-    if(const auto error = validateCreateUserBody(*json))
+    if(const auto validationError = validateCreateUserBody(*json))
     {
         callback(
             makeErrorResponse(
-                *error,
+                *validationError,
                 drogon::k400BadRequest
             )
         );
@@ -395,7 +396,7 @@ void UserController::updateUser(
     using UserModel = drogon_model::sqlite3::Users;
 
     UserModel user;
-    user.setId(*parseId);
+    user.setId(*parsedId);
     user.setName((*json)["name"].asString());
     user.setAge((*json)["age"].asInt());
 
@@ -406,7 +407,7 @@ void UserController::updateUser(
 
     mapper.update(
         user,
-        [callback = std::move(callback), user](
+        [callback = std::move(callback)](
             std::size_t affectedRows
         )
         {
@@ -421,12 +422,9 @@ void UserController::updateUser(
                 return;
             }
 
-            callback(
-                makeJsonResponse(
-                    user.toJson(),
-                    drogon::k204NoContent
-                )
-            );
+            auto response = drogon::HttpResponse::newHttpResponse();
+            response->setStatusCode(drogon::k204NoContent);
+            callback(response);
         },
         [callback = std::move(databaseErrorCallback)](
             const drogon::orm::DrogonDbException& error
