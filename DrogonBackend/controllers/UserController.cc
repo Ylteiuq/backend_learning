@@ -442,3 +442,64 @@ void UserController::updateUser(
         }
     );
 }
+
+void UserController::deleteUser(
+    const drogon::HttpRequestPtr& req,
+    std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+    std::string id
+)
+{
+    const auto parseId = parseInt64(id);
+
+    if(!parseId || *parseId<=0)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid user id",
+                drogon::k400BadRequest
+            )
+        );
+    }
+
+    using UserModel = drogon_model::sqlite3::Users;
+
+    auto dbClient = drogon::app().getDbClient("default");
+    drogon::orm::Mapper<UserModel> mapper(dbClient);
+
+    auto databasetErrorCallback = callback;
+
+    mapper.deleteByPrimaryKey(
+        *parseId,
+        [callback = std::move(callback)](const std::size_t affectedRows)
+        {
+            if(affectedRows == 0)
+            {
+                callback(
+                    makeErrorResponse(
+                        "User not found",
+                        drogon::k404NotFound
+                    )
+                );
+                return;
+            }
+
+            auto response = drogon::HttpResponse::newHttpResponse();
+            response->setStatusCode(drogon::k204NoContent);
+            callback(response);
+        },
+        [callback = std::move(databasetErrorCallback)](
+            const drogon::orm::DrogonDbException& error
+        )
+        {
+            LOG_ERROR << "Failed delete user"
+                << error.base().what();
+
+            callback(
+                makeErrorResponse(
+                    "Database error",
+                    drogon::k500InternalServerError
+                )
+            );
+        }
+    );
+}
