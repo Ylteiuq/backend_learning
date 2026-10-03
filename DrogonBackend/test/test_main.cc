@@ -307,6 +307,139 @@ DROGON_TEST(userListTest)
     }
 }
 
+
+namespace
+{
+    drogon::HttpRequestPtr makeUserRequest(
+        drogon::HttpMethod method,
+        const std::string& path,
+        const std::string& body = "")
+    {
+        auto request = drogon::HttpRequest::newHttpRequest();
+        request->setMethod(method);
+        request->setPath(path);
+        if(!body.empty())
+        {
+            request->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+            request->setBody(body);
+        }
+        return request;
+    }
+}
+
+DROGON_TEST(userLifecycleTest)
+{
+    using namespace drogon;
+
+    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    // This test runs on the test thread; the HTTP event loop runs separately.
+    const auto [createResult, created] = client->sendRequest(
+        makeUserRequest(Post, "/users", R"({"name":"Lifecycle","age":20})"),
+        5.0
+    );
+    REQUIRE(createResult == ReqResult::Ok);
+    REQUIRE(created != nullptr);
+    REQUIRE(created->getStatusCode() == k201Created);
+    const auto createdJson = created->getJsonObject();
+    REQUIRE(createdJson != nullptr);
+    REQUIRE((*createdJson)["id"].isInt64());
+    const auto id = (*createdJson)["id"].asInt64();
+    REQUIRE(id > 0);
+    const auto path = "/users/" + std::to_string(id);
+
+    for(int attempt = 0; attempt < 2; ++attempt)
+    {
+        const auto [result, response] = client->sendRequest(
+            makeUserRequest(Put, path, R"({"name":"Updated","age":25})"),
+            5.0
+        );
+        REQUIRE(result == ReqResult::Ok);
+        REQUIRE(response != nullptr);
+        REQUIRE(response->getStatusCode() == k204NoContent);
+        CHECK(response->getBody().empty());
+    }
+
+    const auto [getResult, fetched] = client->sendRequest(
+        makeUserRequest(Get, path), 5.0
+    );
+    REQUIRE(getResult == ReqResult::Ok);
+    REQUIRE(fetched != nullptr);
+    REQUIRE(fetched->getStatusCode() == k200OK);
+    const auto fetchedJson = fetched->getJsonObject();
+    REQUIRE(fetchedJson != nullptr);
+    CHECK((*fetchedJson)["id"].asInt64() == id);
+    CHECK((*fetchedJson)["name"] == "Updated");
+    CHECK((*fetchedJson)["age"] == 25);
+
+    const auto [deleteResult, deleted] = client->sendRequest(
+        makeUserRequest(Delete, path), 5.0
+    );
+    REQUIRE(deleteResult == ReqResult::Ok);
+    REQUIRE(deleted != nullptr);
+    REQUIRE(deleted->getStatusCode() == k204NoContent);
+    CHECK(deleted->getBody().empty());
+
+    // The generated ID has just been deleted, so these 404 checks are deterministic.
+    for(const auto method : {Get, Delete, Put})
+    {
+        const auto [result, response] = client->sendRequest(
+            makeUserRequest(method, path,
+                method == Put ? R"({"name":"Updated","age":25})" : ""),
+            5.0
+        );
+        REQUIRE(result == ReqResult::Ok);
+        REQUIRE(response != nullptr);
+        REQUIRE(response->getStatusCode() == k404NotFound);
+        const auto json = response->getJsonObject();
+        REQUIRE(json != nullptr);
+        CHECK((*json)["error"].isString());
+    }
+}
+
+DROGON_TEST(errorWriteTest)
+{
+    using namespace drogon;
+
+    struct ErrorCase
+    {
+        HttpMethod method;
+        std::string path;
+        std::string body;
+    };
+    const ErrorCase cases[]{
+        {Put, "/users/abc", R"({"name":"Updated","age":25})"},
+        {Put, "/users/0", R"({"name":"Updated","age":25})"},
+        {Put, "/users/-1", R"({"name":"Updated","age":25})"},
+        {Delete, "/users/abc", ""},
+        {Delete, "/users/0", ""},
+        {Delete, "/users/-1", ""},
+        {Delete, "/users/9223372036854775808", ""},
+        {Put, "/users/1", "not-json"},
+        {Put, "/users/1", R"({"name":"Updated"})"},
+        {Put, "/users/1", R"({"age":25})"},
+        {Put, "/users/1", R"({"name":42,"age":25})"},
+        {Put, "/users/1", R"({"name":"Updated","age":"25"})"}
+    };
+    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    for(const auto& testCase : cases)
+    {
+        client->sendRequest(
+            makeUserRequest(testCase.method, testCase.path, testCase.body),
+            [TEST_CTX](ReqResult result, const HttpResponsePtr& response)
+            {
+                REQUIRE(result == ReqResult::Ok);
+                REQUIRE(response != nullptr);
+                REQUIRE(response->getStatusCode() == k400BadRequest);
+                const auto json = response->getJsonObject();
+                REQUIRE(json != nullptr);
+                REQUIRE((*json)["error"].isString());
+                CHECK(!(*json)["error"].asString().empty());
+            },
+            5.0
+        );
+    }
+}
+
 int main(int argc, char** argv)
 {
     using namespace drogon;
