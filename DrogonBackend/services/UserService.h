@@ -8,6 +8,7 @@
 
 #include <drogon/orm/DbClient.h>
 #include <drogon/orm/Exception.h>
+
 #include "models/Users.h"
 
 class UserService
@@ -15,8 +16,7 @@ class UserService
 public:
     using User = drogon_model::sqlite3::Users;
     using SuccessCallback = std::function<void(User)>;
-    using UpdateCallback = std::function<void(std::size_t)>;
-    using DeleteCallback = std::function<void(std::size_t)>;
+    using AffectedRowsCallback = std::function<void(std::size_t)>;
     using ListCallback = std::function<void(std::vector<User>)>;
     using ErrorCallback =
         std::function<void(const drogon::orm::DrogonDbException&)>;
@@ -40,13 +40,13 @@ public:
         std::int64_t id,
         std::string name,
         std::int64_t age,
-        UpdateCallback onSuccess,
+        AffectedRowsCallback onSuccess,
         ErrorCallback onError
     ) const;
 
     void deleteById(
         std::int64_t id,
-        DeleteCallback onSuccess,
+        AffectedRowsCallback onSuccess,
         ErrorCallback onError
     ) const;
 

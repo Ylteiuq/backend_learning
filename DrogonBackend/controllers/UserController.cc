@@ -12,10 +12,8 @@
 #include <utility>
 #include <vector>
 
-#include <drogon/orm/Mapper.h>
 #include <trantor/utils/Logger.h>
 
-#include "models/Users.h"
 #include "services/UserService.h"
 
 namespace
@@ -42,7 +40,7 @@ namespace
         return parsedValue;
     }
 
-    std::optional<std::string> validateCreateUserBody(
+    std::optional<std::string> validateUserBody(
         const Json::Value &body)
     {
         if (!body.isObject())
@@ -113,7 +111,7 @@ void UserController::getById(
         return;
     }
 
-    using UserModel = drogon_model::sqlite3::Users;
+    using UserModel = UserService::User;
 
     UserService service(drogon::app().getDbClient("default"));
 
@@ -169,7 +167,7 @@ void UserController::createUser(
         return;
     }
 
-    if (const auto validationError = validateCreateUserBody(*json))
+    if (const auto validationError = validateUserBody(*json))
     {
         callback(
             makeErrorResponse(
@@ -181,7 +179,7 @@ void UserController::createUser(
     const std::string name = (*json)["name"].asString();
     const int age = (*json)["age"].asInt();
 
-    using UserModel = drogon_model::sqlite3::Users;
+    using UserModel = UserService::User;
 
     UserService service(drogon::app().getDbClient("default"));
 
@@ -258,7 +256,7 @@ void UserController::listUsers(
         return;
     }
 
-    using UserModel = drogon_model::sqlite3::Users;
+    using UserModel = UserService::User;
 
     UserService service(drogon::app().getDbClient("default"));
 
@@ -267,8 +265,8 @@ void UserController::listUsers(
     const auto perPageValue = *perPage;
 
     service.list(
-        pageValue,
-        perPageValue,
+        static_cast<std::size_t>(pageNumber),
+        static_cast<std::size_t>(perPageNumber),
         [callback = std::move(callback), pageValue, perPageValue](
             std::vector<UserModel> users)
         {
@@ -327,7 +325,7 @@ void UserController::updateUser(
         return;
     }
 
-    if (const auto validationError = validateCreateUserBody(*json))
+    if (const auto validationError = validateUserBody(*json))
     {
         callback(
             makeErrorResponse(
@@ -389,15 +387,13 @@ void UserController::deleteUser(
         return;
     }
 
-    using UserModel = drogon_model::sqlite3::Users;
-
     UserService service(drogon::app().getDbClient("default"));
 
     auto databaseErrorCallback = callback;
 
     service.deleteById(
         *parsedId,
-        [callback = std::move(callback)](const std::size_t affectedRows)
+        [callback = std::move(callback)](std::size_t affectedRows)
         {
             if (affectedRows == 0)
             {

@@ -48,7 +48,7 @@ void UserService::update(
     std::int64_t id,
     std::string name,
     std::int64_t age,
-    UpdateCallback onSuccess,
+    AffectedRowsCallback onSuccess,
     ErrorCallback onError
 ) const
 {
@@ -68,8 +68,8 @@ void UserService::update(
 
 void UserService::deleteById(
     std::int64_t id,
-    UserService::DeleteCallback onSuccess,
-    UserService::ErrorCallback onError
+    AffectedRowsCallback onSuccess,
+    ErrorCallback onError
 ) const
 {
     drogon::orm::Mapper<User> mapper(dbClient_);
@@ -92,5 +92,5 @@ void UserService::list(
 
     mapper.orderBy(User::Cols::_id)
         .paginate(page, perPage)
-        .findAll(std::move(onSuccess),std::move(onError));
+        .findAll(std::move(onSuccess), std::move(onError));
 }
