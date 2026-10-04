@@ -1,7 +1,7 @@
 {
   "rdbms": "sqlite3",
   "filename": "drogon_backend.db",
-  "tables": ["users"],
+  "tables": ["users", "tasks"],
   "relationships": {
     "enabled": false,
     "items": []
