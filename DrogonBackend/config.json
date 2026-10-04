@@ -3,7 +3,9 @@
     {
       "name": "default",
       "rdbms": "sqlite3",
-      "filename": "drogon_backend.db"
+      "filename": "drogon_backend.db",
+      "connection_number": 1,
+      "is_fast": false
     }
   ],
   "app": {
