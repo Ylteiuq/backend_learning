@@ -14,6 +14,7 @@
 
 #include <trantor/utils/Logger.h>
 
+#include "services/TaskService.h"
 #include "services/UserService.h"
 
 namespace
@@ -66,6 +67,33 @@ namespace
         if (!body["age"].isInt())
         {
             return "age must be an integer";
+        }
+
+        return std::nullopt;
+    }
+
+    std::optional<std::string> validateTaskBody(
+        const Json::Value &body)
+    {
+        if (!body.isObject())
+        {
+            return "request body must be a JSON object";
+        }
+
+        if (!body.isMember("title"))
+        {
+            return "title is required";
+        }
+
+        if (!body["title"].isString())
+        {
+            return "title must be a string";
+        }
+
+        if (body["title"].asString().find_first_not_of(" \t\r\n\f\v") ==
+            std::string::npos)
+        {
+            return "title must not be blank";
         }
 
         return std::nullopt;
@@ -412,6 +440,87 @@ void UserController::deleteUser(
             const drogon::orm::DrogonDbException &error)
         {
             LOG_ERROR << "Failed to delete user: "
+                      << error.base().what();
+
+            callback(
+                makeErrorResponse(
+                    "Database error",
+                    drogon::k500InternalServerError));
+        });
+}
+
+void UserController::createTask(
+    const drogon::HttpRequestPtr &req,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback,
+    std::string id)
+{
+    const auto parsedId = parseInt64(id);
+    if (!parsedId || *parsedId <= 0)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid user id",
+                drogon::k400BadRequest));
+        return;
+    }
+
+    const auto json = req->getJsonObject();
+
+    if (!json)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid JSON or Content-Type must be application/json",
+                drogon::k400BadRequest));
+        return;
+    }
+
+    if (const auto validationError = validateTaskBody(*json))
+    {
+        callback(
+            makeErrorResponse(
+                *validationError,
+                drogon::k400BadRequest));
+        return;
+    }
+
+    using TaskModel = TaskService::Task;
+
+    TaskService service(drogon::app().getDbClient("default"));
+
+    auto databaseErrorCallback = callback;
+
+    service.create(
+        *parsedId,
+        (*json)["title"].asString(),
+        [callback = std::move(callback)](TaskModel insertedTask)
+        {
+            callback(
+                makeJsonResponse(
+                    insertedTask.toJson(),
+                    drogon::k201Created));
+        },
+        [callback = std::move(databaseErrorCallback)](
+            const drogon::orm::DrogonDbException &error)
+        {
+            const auto *unexpectedRows =
+                dynamic_cast<const drogon::orm::UnexpectedRows *>(
+                    &error.base());
+            const auto *foreignKeyViolation =
+                dynamic_cast<const drogon::orm::ForeignKeyViolation *>(
+                    &error.base());
+
+            // The owner can be deleted between the lookup and the insertion.
+            if (unexpectedRows != nullptr || foreignKeyViolation != nullptr)
+            {
+                callback(
+                    makeErrorResponse(
+                        "User not found",
+                        drogon::k404NotFound));
+                return;
+            }
+
+            LOG_ERROR << "Failed to create task: "
                       << error.base().what();
 
             callback(
