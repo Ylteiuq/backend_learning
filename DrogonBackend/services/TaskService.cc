@@ -2,6 +2,7 @@
 
 #include "UserService.h"
 
+#include <drogon/orm/Criteria.h>
 #include <drogon/orm/Mapper.h>
 
 #include <utility>
@@ -42,6 +43,36 @@ void TaskService::create(
                 std::move(onSuccess),
                 std::move(onError)
             );
+        },
+        std::move(onFindError)
+    );
+}
+
+void TaskService::listByUserId(
+    std::int64_t userId,
+    ListCallback onSuccess,
+    ErrorCallback onError
+) const
+{
+    UserService userService(dbClient_);
+
+    auto onFindError = onError;
+
+    userService.findById(
+        userId,
+        [dbClient = dbClient_,
+         onSuccess = std::move(onSuccess),
+         onError = std::move(onError)](UserService::User user) mutable
+        {
+            drogon::orm::Mapper<Task> mapper(dbClient);
+
+            mapper.orderBy(Task::Cols::_id)
+                .findBy(
+                    drogon::orm::Criteria(
+                        Task::Cols::_user_id, user.getValueOfId()),
+                    std::move(onSuccess),
+                    std::move(onError)
+                );
         },
         std::move(onFindError)
     );

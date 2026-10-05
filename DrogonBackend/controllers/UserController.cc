@@ -529,3 +529,69 @@ void UserController::createTask(
                     drogon::k500InternalServerError));
         });
 }
+
+void UserController::listTasks(
+    const drogon::HttpRequestPtr &,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback,
+    std::string userId)
+{
+    const auto parsedId = parseInt64(userId);
+
+    if (!parsedId || *parsedId <= 0)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid user id",
+                drogon::k400BadRequest));
+        return;
+    }
+
+    using TaskModel = TaskService::Task;
+
+    TaskService service(drogon::app().getDbClient("default"));
+
+    auto databaseErrorCallback = callback;
+
+    service.listByUserId(
+        *parsedId,
+        [callback = std::move(callback)](std::vector<TaskModel> tasks)
+        {
+            Json::Value tasksJson(Json::arrayValue);
+            for (const auto &task : tasks)
+            {
+                tasksJson.append(task.toJson());
+            }
+
+            Json::Value body;
+            body["tasks"] = std::move(tasksJson);
+
+            callback(
+                makeJsonResponse(
+                    std::move(body),
+                    drogon::k200OK));
+        },
+        [callback = std::move(databaseErrorCallback)](
+            const drogon::orm::DrogonDbException &error)
+        {
+            const auto *unexpectedRows =
+                dynamic_cast<const drogon::orm::UnexpectedRows *>(
+                    &error.base());
+
+            if (unexpectedRows != nullptr)
+            {
+                callback(
+                    makeErrorResponse(
+                        "User not found",
+                        drogon::k404NotFound));
+                return;
+            }
+
+            LOG_ERROR << "Failed to list tasks: "
+                      << error.base().what();
+
+            callback(
+                makeErrorResponse(
+                    "Database error",
+                    drogon::k500InternalServerError));
+        });
+}
