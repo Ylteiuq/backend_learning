@@ -16,6 +16,10 @@ public:
     ADD_METHOD_TO(UserController::deleteUser, "/users/{1}", drogon::Delete);
     ADD_METHOD_TO(UserController::createTask, "/users/{1}/tasks", drogon::Post);
     ADD_METHOD_TO(UserController::listTasks, "/users/{1}/tasks", drogon::Get);
+    ADD_METHOD_TO(
+        UserController::updateTaskCompleted,
+        "/users/{1}/tasks/{2}",
+        drogon::Patch);
     METHOD_LIST_END
 
     void getById(
@@ -56,5 +60,12 @@ public:
         const drogon::HttpRequestPtr& req,
         std::function<void(const drogon::HttpResponsePtr&)>&& callback,
         std::string userId
+    );
+
+    void updateTaskCompleted(
+        const drogon::HttpRequestPtr& req,
+        std::function<void(const drogon::HttpResponsePtr&)>&& callback,
+        std::string userId,
+        std::string taskId
     );
 };

@@ -99,6 +99,27 @@ namespace
         return std::nullopt;
     }
 
+    std::optional<std::string> validateTaskCompletionBody(
+        const Json::Value &body)
+    {
+        if (!body.isObject())
+        {
+            return "request body must be a JSON object";
+        }
+
+        if (!body.isMember("completed"))
+        {
+            return "completed is required";
+        }
+
+        if (!body["completed"].isBool())
+        {
+            return "completed must be a boolean";
+        }
+
+        return std::nullopt;
+    }
+
     drogon::HttpResponsePtr makeJsonResponse(
         Json::Value body,
         drogon::HttpStatusCode status)
@@ -587,6 +608,87 @@ void UserController::listTasks(
             }
 
             LOG_ERROR << "Failed to list tasks: "
+                      << error.base().what();
+
+            callback(
+                makeErrorResponse(
+                    "Database error",
+                    drogon::k500InternalServerError));
+        });
+}
+
+void UserController::updateTaskCompleted(
+    const drogon::HttpRequestPtr &req,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback,
+    std::string userId,
+    std::string taskId)
+{
+    const auto parsedUserId = parseInt64(userId);
+    if (!parsedUserId || *parsedUserId <= 0)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid user id",
+                drogon::k400BadRequest));
+        return;
+    }
+
+    const auto parsedTaskId = parseInt64(taskId);
+    if (!parsedTaskId || *parsedTaskId <= 0)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid task id",
+                drogon::k400BadRequest));
+        return;
+    }
+
+    const auto json = req->getJsonObject();
+    if (!json)
+    {
+        callback(
+            makeErrorResponse(
+                "invalid JSON or Content-Type must be application/json",
+                drogon::k400BadRequest));
+        return;
+    }
+
+    if (const auto validationError = validateTaskCompletionBody(*json))
+    {
+        callback(
+            makeErrorResponse(
+                *validationError,
+                drogon::k400BadRequest));
+        return;
+    }
+
+    TaskService service(drogon::app().getDbClient("default"));
+
+    auto databaseErrorCallback = callback;
+
+    service.updateCompleted(
+        *parsedUserId,
+        *parsedTaskId,
+        (*json)["completed"].asBool(),
+        [callback = std::move(callback)](std::size_t affectedRows)
+        {
+            if (affectedRows == 0)
+            {
+                callback(
+                    makeErrorResponse(
+                        "Task not found",
+                        drogon::k404NotFound));
+                return;
+            }
+
+            auto response = drogon::HttpResponse::newHttpResponse();
+            response->setStatusCode(drogon::k204NoContent);
+            callback(response);
+        },
+        [callback = std::move(databaseErrorCallback)](
+            const drogon::orm::DrogonDbException &error)
+        {
+            LOG_ERROR << "Failed to update task completion: "
                       << error.base().what();
 
             callback(

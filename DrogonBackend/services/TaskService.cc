@@ -77,3 +77,27 @@ void TaskService::listByUserId(
         std::move(onFindError)
     );
 }
+
+void TaskService::updateCompleted(
+    std::int64_t userId,
+    std::int64_t taskId,
+    bool completed,
+    AffectedRowsCallback onSuccess,
+    ErrorCallback onError
+) const
+{
+    drogon::orm::Mapper<Task> mapper(dbClient_);
+
+    // Match the task and its owner in the same UPDATE statement.
+    const auto criteria =
+        drogon::orm::Criteria(Task::Cols::_id, taskId) &&
+        drogon::orm::Criteria(Task::Cols::_user_id, userId);
+
+    mapper.updateBy(
+        {Task::Cols::_completed},
+        std::move(onSuccess),
+        std::move(onError),
+        criteria,
+        completed ? std::int64_t{1} : std::int64_t{0}
+    );
+}

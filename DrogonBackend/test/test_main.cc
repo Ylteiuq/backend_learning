@@ -6,6 +6,7 @@
 #include <future>
 #include <string>
 #include <thread>
+#include <vector>
 
 DROGON_TEST(errorPostTest)
 {
@@ -438,6 +439,158 @@ DROGON_TEST(errorWriteTest)
             5.0
         );
     }
+}
+
+DROGON_TEST(taskCompletionTest)
+{
+    using namespace drogon;
+
+    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    std::vector<Json::Int64> userIds;
+    std::vector<Json::Int64> taskIds;
+
+    // Create this test's own users and tasks; never assume existing IDs.
+    for(int index = 0; index < 2; ++index)
+    {
+        const auto [userResult, userResponse] = client->sendRequest(
+            makeUserRequest(Post, "/users",
+                R"({"name":"TaskCompletion","age":20})"),
+            5.0
+        );
+        REQUIRE(userResult == ReqResult::Ok);
+        REQUIRE(userResponse != nullptr);
+        REQUIRE(userResponse->getStatusCode() == k201Created);
+        const auto userJson = userResponse->getJsonObject();
+        REQUIRE(userJson != nullptr);
+        REQUIRE((*userJson)["id"].isInt64());
+        const auto userId = (*userJson)["id"].asInt64();
+        REQUIRE(userId > 0);
+        userIds.push_back(userId);
+
+        const auto [taskResult, taskResponse] = client->sendRequest(
+            makeUserRequest(Post, "/users/" + std::to_string(userId) + "/tasks",
+                R"({"title":"Completion test task"})"),
+            5.0
+        );
+        REQUIRE(taskResult == ReqResult::Ok);
+        REQUIRE(taskResponse != nullptr);
+        REQUIRE(taskResponse->getStatusCode() == k201Created);
+        const auto taskJson = taskResponse->getJsonObject();
+        REQUIRE(taskJson != nullptr);
+        REQUIRE((*taskJson)["id"].isInt64());
+        const auto taskId = (*taskJson)["id"].asInt64();
+        REQUIRE(taskId > 0);
+        taskIds.push_back(taskId);
+    }
+
+    const auto taskPath = [](Json::Int64 userId, Json::Int64 taskId)
+    {
+        return "/users/" + std::to_string(userId) +
+            "/tasks/" + std::to_string(taskId);
+    };
+    const auto path = taskPath(userIds[0], taskIds[0]);
+    const auto listPath = "/users/" + std::to_string(userIds[0]) + "/tasks";
+
+    const auto checkTaskState = [&](int completed)
+    {
+        const auto [result, response] = client->sendRequest(
+            makeUserRequest(Get, listPath), 5.0
+        );
+        REQUIRE(result == ReqResult::Ok);
+        REQUIRE(response != nullptr);
+        REQUIRE(response->getStatusCode() == k200OK);
+        const auto json = response->getJsonObject();
+        REQUIRE(json != nullptr);
+        const auto& tasks = (*json)["tasks"];
+        REQUIRE(tasks.isArray());
+        REQUIRE(tasks.size() == 1);
+        CHECK(tasks[0]["id"].asInt64() == taskIds[0]);
+        CHECK(tasks[0]["user_id"].asInt64() == userIds[0]);
+        CHECK(tasks[0]["title"] == "Completion test task");
+        CHECK(tasks[0]["completed"].asInt() == completed);
+    };
+
+    for(const bool completed : {true, true, false, false})
+    {
+        const auto [result, response] = client->sendRequest(
+            makeUserRequest(Patch, path,
+                completed ? R"({"completed":true})" : R"({"completed":false})"),
+            5.0
+        );
+        REQUIRE(result == ReqResult::Ok);
+        REQUIRE(response != nullptr);
+        REQUIRE(response->getStatusCode() == k204NoContent);
+        CHECK(response->getBody().empty());
+        checkTaskState(completed ? 1 : 0);
+    }
+
+    const auto checkError = [&](const std::string& requestPath,
+                                const std::string& body,
+                                HttpStatusCode status,
+                                const std::string& message)
+    {
+        const auto [result, response] = client->sendRequest(
+            makeUserRequest(Patch, requestPath, body), 5.0
+        );
+        REQUIRE(result == ReqResult::Ok);
+        REQUIRE(response != nullptr);
+        REQUIRE(response->getStatusCode() == status);
+        const auto json = response->getJsonObject();
+        REQUIRE(json != nullptr);
+        CHECK((*json)["error"] == message);
+    };
+
+    checkError(taskPath(userIds[1], taskIds[0]), R"({"completed":true})",
+        k404NotFound, "Task not found");
+    checkTaskState(0);
+
+    struct InvalidBody
+    {
+        std::string body;
+        std::string message;
+    };
+    const InvalidBody cases[]{
+        {"not-json", "invalid JSON or Content-Type must be application/json"},
+        {"[]", "request body must be a JSON object"},
+        {"{}", "completed is required"},
+        {R"({"completed":"true"})", "completed must be a boolean"},
+        {R"({"completed":1})", "completed must be a boolean"},
+        {R"({"completed":0})", "completed must be a boolean"},
+        {R"({"completed":null})", "completed must be a boolean"}
+    };
+    for(const auto& testCase : cases)
+    {
+        checkError(path, testCase.body, k400BadRequest, testCase.message);
+    }
+
+    for(const std::string value : {"abc", "0", "-1", "9223372036854775808"})
+    {
+        checkError("/users/" + value + "/tasks/" + std::to_string(taskIds[0]),
+            R"({"completed":true})", k400BadRequest, "invalid user id");
+        checkError("/users/" + std::to_string(userIds[0]) + "/tasks/" + value,
+            R"({"completed":true})", k400BadRequest, "invalid task id");
+    }
+    checkTaskState(0);
+
+    // Delete the other owner to obtain a known-missing user and cascaded task.
+    const auto [deleteOtherResult, deleteOtherResponse] = client->sendRequest(
+        makeUserRequest(Delete, "/users/" + std::to_string(userIds[1])), 5.0
+    );
+    REQUIRE(deleteOtherResult == ReqResult::Ok);
+    REQUIRE(deleteOtherResponse != nullptr);
+    REQUIRE(deleteOtherResponse->getStatusCode() == k204NoContent);
+    checkError(taskPath(userIds[0], taskIds[1]), R"({"completed":true})",
+        k404NotFound, "Task not found");
+    checkError(taskPath(userIds[1], taskIds[0]), R"({"completed":true})",
+        k404NotFound, "Task not found");
+    checkTaskState(0);
+
+    const auto [cleanupResult, cleanupResponse] = client->sendRequest(
+        makeUserRequest(Delete, "/users/" + std::to_string(userIds[0])), 5.0
+    );
+    REQUIRE(cleanupResult == ReqResult::Ok);
+    REQUIRE(cleanupResponse != nullptr);
+    REQUIRE(cleanupResponse->getStatusCode() == k204NoContent);
 }
 
 int main(int argc, char** argv)
