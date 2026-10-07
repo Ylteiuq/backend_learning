@@ -11,6 +11,8 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+#include <sstream>
+#include <thread>
 
 #include <trantor/utils/Logger.h>
 
@@ -143,6 +145,22 @@ namespace
             std::move(body),
             status);
     }
+
+    void traceThread(const char* stage)
+    {
+        std::ostringstream output;
+        output << std::this_thread::get_id();
+
+        LOG_INFO << stage << "thread=" << output.str();
+    }
+
+    struct ScopeTrace
+    {
+        ~ScopeTrace()
+        {
+            traceThread("D: getById scope ending");
+        }
+    };
 }
 
 void UserController::getById(
@@ -162,14 +180,20 @@ void UserController::getById(
 
     using UserModel = UserService::User;
 
+    ScopeTrace scopeTrace;
+
     UserService service(drogon::app().getDbClient("default"));
 
     auto databaseErrorCallback = callback;
+
+    traceThread("A: before findById");
 
     service.findById(
         *parsedId,
         [callback = std::move(callback)](UserModel user)
         {
+            traceThread("C: database success callback");
+
             callback(
                 makeJsonResponse(
                     user.toJson(),
@@ -181,6 +205,8 @@ void UserController::getById(
             const auto *unexpectedRows =
                 dynamic_cast<const drogon::orm::UnexpectedRows *>(
                     &error.base());
+
+            traceThread("C: database error callback");
 
             if (unexpectedRows != nullptr)
             {
@@ -199,6 +225,8 @@ void UserController::getById(
                     "Database error",
                     drogon::k500InternalServerError));
         });
+
+    traceThread("B: findById returned");
 }
 
 void UserController::createUser(
