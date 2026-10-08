@@ -81,5 +81,16 @@ target_sources(${PROJECT_NAME}
 
 # ##############################################################################
 
+find_package(Threads REQUIRED)
+
+add_executable(WorkerQueueDemo
+    experiments/worker_queue_demo.cc
+    utils/WorkerQueue.cc)
+target_include_directories(WorkerQueueDemo
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(WorkerQueueDemo PRIVATE Threads::Threads)
+
 enable_testing()
+add_test(NAME WorkerQueueDemo COMMAND WorkerQueueDemo)
+set_tests_properties(WorkerQueueDemo PROPERTIES TIMEOUT 10)
 add_subdirectory(test)
