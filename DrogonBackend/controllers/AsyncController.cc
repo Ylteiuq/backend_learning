@@ -193,6 +193,12 @@ void AsyncController::countPrimes(
 
             const int count = calculatePrimeCount(limit);
 
+            {
+                std::lock_guard<std::mutex> lock(stats->mutex);
+                --stats->running;
+                ++stats->completed;
+            }
+
             Json::Value body;
             body["limit"] = limit;
             body["count"] = count;
@@ -201,11 +207,6 @@ void AsyncController::countPrimes(
                 makeJsonResponse(
                     std::move(body),
                     drogon::k200OK));
-            {
-                std::lock_guard<std::mutex> lock(stats->mutex);
-                --stats->running;
-                ++stats->completed;
-            }
         });
 
     LOG_INFO << "C: calculation submitted";
@@ -221,13 +222,15 @@ void AsyncController::getComputeStats(
 
     {
         std::lock_guard<std::mutex> lock(stats->mutex);
-        body["queued"] = Json::UInt64(stats->submitted -
-            stats->completed -
-            stats->running);
+        body["submitted"] = Json::UInt64(stats->submitted);
+        body["running"] = Json::UInt64(stats->running);
+        body["completed"] = Json::UInt64(stats->completed);
+        body["queued"] = Json::UInt64(
+            stats->submitted - stats->running - stats->completed);
     }
 
     callback(
         makeJsonResponse(
-        body,
-        drogon::k200OK));
+            std::move(body),
+            drogon::k200OK));
 }
