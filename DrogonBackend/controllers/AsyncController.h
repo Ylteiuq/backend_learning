@@ -17,6 +17,10 @@ public:
         AsyncController::countPrimes,
         "/debug/primes",
         drogon::Get);
+    ADD_METHOD_TO(
+        AsyncController::getComputeStats,
+        "/debug/compute/stats",
+        drogon::Get);
     METHOD_LIST_END
 
     void delay(
@@ -24,6 +28,10 @@ public:
         std::function<void(const drogon::HttpResponsePtr &)> &&callback);
 
     void countPrimes(
+        const drogon::HttpRequestPtr &req,
+        std::function<void(const drogon::HttpResponsePtr &)> &&callback);
+
+    void getComputeStats(
         const drogon::HttpRequestPtr &req,
         std::function<void(const drogon::HttpResponsePtr &)> &&callback);
 };

@@ -5,6 +5,8 @@
 
 #include <charconv>
 #include <cstdint>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <system_error>
@@ -104,6 +106,20 @@ namespace
 
         return parsedValue;
     }
+
+    struct ComputeStats
+    {
+        std::mutex mutex;
+        std::uint64_t submitted = 0;
+        std::uint64_t running = 0;
+        std::uint64_t completed = 0;
+    };
+
+    std::shared_ptr<ComputeStats> computeStats()
+    {
+        static auto stats = std::make_shared<ComputeStats>();
+        return stats;
+    }
 }
 
 void AsyncController::delay(
@@ -158,10 +174,22 @@ void AsyncController::countPrimes(
 
     LOG_INFO << "A: submitting prime calculation";
 
+    const auto stats = computeStats();
+
+    {
+        std::lock_guard<std::mutex> lock(stats->mutex);
+        ++stats->submitted;
+    }
+
     computeQueue().runTaskInQueue(
-        [limit, callback = std::move(callback)]()
+        [limit, stats, callback = std::move(callback)]()
         {
             LOG_INFO << "B: prime calculation started";
+
+            {
+                std::lock_guard<std::mutex> lock(stats->mutex);
+                ++stats->running;
+            }
 
             const int count = calculatePrimeCount(limit);
 
@@ -173,7 +201,33 @@ void AsyncController::countPrimes(
                 makeJsonResponse(
                     std::move(body),
                     drogon::k200OK));
+            {
+                std::lock_guard<std::mutex> lock(stats->mutex);
+                --stats->running;
+                ++stats->completed;
+            }
         });
 
     LOG_INFO << "C: calculation submitted";
+}
+
+void AsyncController::getComputeStats(
+    const drogon::HttpRequestPtr &,
+    std::function<void(const drogon::HttpResponsePtr &)> &&callback)
+{
+    const auto stats = computeStats();
+
+    Json::Value body;
+
+    {
+        std::lock_guard<std::mutex> lock(stats->mutex);
+        body["queued"] = Json::UInt64(stats->submitted -
+            stats->completed -
+            stats->running);
+    }
+
+    callback(
+        makeJsonResponse(
+        body,
+        drogon::k200OK));
 }
