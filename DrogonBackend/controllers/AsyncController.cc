@@ -1,7 +1,7 @@
 #include "AsyncController.h"
 
 #include <drogon/drogon.h>
-#include <trantor/utils/ConcurrentTaskQueue.h>
+#include "utils/WorkerQueue.h"
 
 #include <charconv>
 #include <cstdint>
@@ -76,12 +76,9 @@ namespace
         return count;
     }
 
-    trantor::ConcurrentTaskQueue &computeQueue()
+    WorkerQueue &computeQueue()
     {
-        static trantor::ConcurrentTaskQueue queue(
-            1,
-            "compute");
-
+        static WorkerQueue queue;
         return queue;
     }
 
@@ -119,6 +116,22 @@ namespace
     {
         static auto stats = std::make_shared<ComputeStats>();
         return stats;
+    }
+
+    std::string postResultResponse(WorkerQueue::PostResult result)
+    {
+        switch (result)
+        {
+        case WorkerQueue::PostResult::Full:
+            return "compute queue is full";
+        case WorkerQueue::PostResult::InvalidTask:
+            return "invalid compute task";
+        case WorkerQueue::PostResult::Stopped:
+            return "compute queue is stopped";
+
+        default:
+            return "unknown error";
+        }
     }
 }
 
@@ -176,12 +189,14 @@ void AsyncController::countPrimes(
 
     const auto stats = computeStats();
 
+    auto rejectedCallback = callback;
+
     {
         std::lock_guard<std::mutex> lock(stats->mutex);
         ++stats->submitted;
     }
 
-    computeQueue().runTaskInQueue(
+    const WorkerQueue::PostResult status = computeQueue().post(
         [limit, stats, callback = std::move(callback)]()
         {
             LOG_INFO << "B: prime calculation started";
@@ -208,6 +223,25 @@ void AsyncController::countPrimes(
                     std::move(body),
                     drogon::k200OK));
         });
+
+    if(status != WorkerQueue::PostResult::Accepted)
+    {
+        {
+            std::lock_guard<std::mutex> lock(stats->mutex);
+            --stats->submitted;
+        }
+
+        const auto httpStatus =
+            status == WorkerQueue::PostResult::InvalidTask
+                ? drogon::k500InternalServerError
+                : drogon::k503ServiceUnavailable;
+
+        rejectedCallback(
+            makeErrorResponse(
+                postResultResponse(status),
+                httpStatus));
+        return;
+    }
 
     LOG_INFO << "C: calculation submitted";
 }

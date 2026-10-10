@@ -83,6 +83,9 @@ target_sources(${PROJECT_NAME}
 
 find_package(Threads REQUIRED)
 
+target_sources(${PROJECT_NAME} PRIVATE utils/WorkerQueue.cc)
+target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
+
 add_executable(WorkerQueueDemo
     experiments/worker_queue_demo.cc
     utils/WorkerQueue.cc)

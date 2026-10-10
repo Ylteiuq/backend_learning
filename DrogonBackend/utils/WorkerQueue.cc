@@ -2,10 +2,17 @@
 
 #include <exception>
 #include <iostream>
+#include <stdexcept>
 #include <utility>
 
-WorkerQueue::WorkerQueue()
+WorkerQueue::WorkerQueue(std::size_t maxPending)
+    : maxPending_(maxPending)
 {
+    if(maxPending_ == 0)
+    {
+        throw std::invalid_argument("maxPending must be greater than 0");
+    }
+
     worker_ = std::thread([this]()
     {
         run();
@@ -17,11 +24,11 @@ WorkerQueue::~WorkerQueue()
     stop();
 }
 
-bool WorkerQueue::post(std::function<void()> task)
+WorkerQueue::PostResult WorkerQueue::post(std::function<void()> task)
 {
     if (!task)
     {
-        return false;
+        return WorkerQueue::PostResult::InvalidTask;
     }
 
     {
@@ -29,14 +36,19 @@ bool WorkerQueue::post(std::function<void()> task)
 
         if (stopping_)
         {
-            return false;
+            return WorkerQueue::PostResult::Stopped;
+        }
+
+        if (tasks_.size() >= maxPending_)
+        {
+            return WorkerQueue::PostResult::Full;
         }
 
         tasks_.push(std::move(task));
     }
 
     condition_.notify_one();
-    return true;
+    return WorkerQueue::PostResult::Accepted;
 }
 
 void WorkerQueue::run()

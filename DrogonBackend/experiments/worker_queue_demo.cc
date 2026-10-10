@@ -14,6 +14,22 @@ namespace
             throw std::runtime_error(message);
         }
     }
+
+    std::string postResultResponse(WorkerQueue::PostResult result)
+    {
+        switch (result)
+        {
+        case WorkerQueue::PostResult::Full:
+            return "compute queue is full";
+        case WorkerQueue::PostResult::InvalidTask:
+            return "invalid compute task";
+        case WorkerQueue::PostResult::Stopped:
+            return "compute queue is stopped";
+
+        default:
+            return "unknown error";
+        }
+    }
 }
 
 int main()
@@ -23,35 +39,35 @@ int main()
         int total = 0;
         std::thread::id workerThread;
         std::vector<int> executionOrder;
-        bool acceptsAfterStop = false;
+        WorkerQueue::PostResult acceptsAfterStop;
 
         {
             WorkerQueue queue;
 
-            check(!queue.post({}), "Empty tasks must be rejected");
+            check(queue.post({}) == WorkerQueue::PostResult::InvalidTask, "Empty tasks must be rejected");
 
             check(queue.post([&total, &workerThread, &executionOrder]()
             {
                 workerThread = std::this_thread::get_id();
                 executionOrder.push_back(1);
                 total += 10;
-            }), "First task must be accepted");
+            }) == WorkerQueue::PostResult::Accepted, "First task must be accepted");
 
             check(queue.post([]()
             {
                 throw std::runtime_error("demo error");
-            }), "Standard exception task must be accepted");
+            }) == WorkerQueue::PostResult::Accepted, "Standard exception task must be accepted");
 
             check(queue.post([]()
             {
                 throw 42;
-            }), "Non-standard exception task must be accepted");
+            }) == WorkerQueue::PostResult::Accepted, "Non-standard exception task must be accepted");
 
             check(queue.post([&total, &executionOrder]()
             {
                 executionOrder.push_back(2);
                 total += 20;
-            }), "Task after exceptions must be accepted");
+            }) == WorkerQueue::PostResult::Accepted, "Task after exceptions must be accepted");
 
             queue.stop();
             queue.stop();
@@ -59,7 +75,7 @@ int main()
             acceptsAfterStop = queue.post([]() {});
         }
 
-        check(!acceptsAfterStop, "Tasks after stop must be rejected");
+        check(acceptsAfterStop == WorkerQueue::PostResult::Stopped, "Tasks after stop must be rejected");
         check(total == 30, "Accepted tasks must finish despite exceptions");
         check(executionOrder == std::vector<int>{1, 2},
               "Tasks must execute in submission order");
@@ -67,7 +83,7 @@ int main()
               "Tasks must execute on the worker thread");
 
         std::cout << std::boolalpha
-                  << "accepts_after_stop=" << acceptsAfterStop << '\n'
+                  << "accepts_after_stop=" << postResultResponse(acceptsAfterStop) << '\n'
                   << "total=" << total << '\n'
                   << "PASS: task order, exceptions, worker thread, repeated stop\n";
 
@@ -76,9 +92,9 @@ int main()
         {
             WorkerQueue queue;
 
-            check(queue.post([&destructorTotal]() { destructorTotal += 7; }),
+            check(queue.post([&destructorTotal]() { destructorTotal += 7; }) == WorkerQueue::PostResult::Accepted,
                   "First destructor task must be accepted");
-            check(queue.post([&destructorTotal]() { destructorTotal += 8; }),
+            check(queue.post([&destructorTotal]() { destructorTotal += 8; }) == WorkerQueue::PostResult::Accepted,
                   "Second destructor task must be accepted");
         }
 
