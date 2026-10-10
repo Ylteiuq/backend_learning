@@ -1,9 +1,17 @@
 {
+  "listeners": [
+    {
+      "address": "127.0.0.1",
+      "port": 5556
+    }
+  ],
   "db_clients": [
     {
       "name": "default",
       "rdbms": "sqlite3",
-      "filename": "test_drogon_backend.db"
+      "filename": "test/test_drogon_backend.db",
+      "connection_number": 1,
+      "is_fast": false
     }
   ],
   "app": {
