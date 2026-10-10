@@ -97,3 +97,6 @@ enable_testing()
 add_test(NAME WorkerQueueDemo COMMAND WorkerQueueDemo)
 set_tests_properties(WorkerQueueDemo PROPERTIES TIMEOUT 10)
 add_subdirectory(test)
+
+add_executable(DatabaseInit tools/init_db.cc)
+target_link_libraries(DatabaseInit PRIVATE SQLite3_lib)
