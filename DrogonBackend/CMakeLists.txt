@@ -100,3 +100,13 @@ add_subdirectory(test)
 
 add_executable(DatabaseInit tools/init_db.cc)
 target_link_libraries(DatabaseInit PRIVATE SQLite3_lib)
+
+add_executable(TransactionDemo
+    experiments/transaction_demo.cc
+    models/Tasks.cc
+    models/Users.cc)
+
+target_include_directories(TransactionDemo
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+target_link_libraries(TransactionDemo PRIVATE Drogon::Drogon SQLite3_lib)
