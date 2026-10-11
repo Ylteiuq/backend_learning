@@ -7,12 +7,24 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cstdlib>
+#include <iostream>
+
+namespace
+{
+std::string testServerUrl = "http://127.0.0.1:5556";
+
+drogon::HttpClientPtr makeTestClient()
+{
+    return drogon::HttpClient::newHttpClient(testServerUrl);
+}
+}
 
 DROGON_TEST(errorPostTest)
 {
     using namespace drogon;
 
-    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    auto client = makeTestClient();
 
     {
         HttpRequestPtr req = HttpRequest::newHttpRequest();
@@ -55,7 +67,7 @@ DROGON_TEST(errorGetTest)
 {
     using namespace drogon;
 
-    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    auto client = makeTestClient();
 
     {
         HttpRequestPtr req = HttpRequest::newHttpRequest();
@@ -96,7 +108,7 @@ DROGON_TEST(createAndGetTest)
 {
     using namespace drogon;
 
-    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    auto client = makeTestClient();
 
     HttpRequestPtr createRequest = HttpRequest::newHttpRequest();
     createRequest->setPath("/users");
@@ -147,7 +159,7 @@ DROGON_TEST(userListTest)
 {
     using namespace drogon;
 
-    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    auto client = makeTestClient();
 
     {
         HttpRequestPtr req = HttpRequest::newHttpRequest();
@@ -332,7 +344,7 @@ DROGON_TEST(userLifecycleTest)
 {
     using namespace drogon;
 
-    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    auto client = makeTestClient();
     // This test runs on the test thread; the HTTP event loop runs separately.
     const auto [createResult, created] = client->sendRequest(
         makeUserRequest(Post, "/users", R"({"name":"Lifecycle","age":20})"),
@@ -421,7 +433,7 @@ DROGON_TEST(errorWriteTest)
         {Put, "/users/1", R"({"name":42,"age":25})"},
         {Put, "/users/1", R"({"name":"Updated","age":"25"})"}
     };
-    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    auto client = makeTestClient();
     for(const auto& testCase : cases)
     {
         client->sendRequest(
@@ -445,7 +457,7 @@ DROGON_TEST(taskCompletionTest)
 {
     using namespace drogon;
 
-    auto client = HttpClient::newHttpClient("http://127.0.0.1:5555");
+    auto client = makeTestClient();
     std::vector<Json::Int64> userIds;
     std::vector<Json::Int64> taskIds;
 
@@ -600,6 +612,18 @@ int main(int argc, char** argv)
     std::promise<void> loopStarted;
     auto loopStartedFuture = loopStarted.get_future();
 
+    if (const char* url = std::getenv("DROGON_TEST_URL"))
+    {
+        if (url[0] == '\0')
+        {
+            std::cerr << "DROGON_TEST_URL must not be empty\n";
+            return 1;
+        }
+
+        testServerUrl = url;
+    }
+
+    std::cout << "Test server: " << testServerUrl << '\n';
     std::thread eventLoopThread([&loopStarted]()
     {
         app().getLoop()->queueInLoop([&loopStarted]()
