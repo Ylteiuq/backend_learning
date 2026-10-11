@@ -2,12 +2,12 @@
 
 > 本文用于恢复项目上下文、记录学习进度和确定下一项任务。主目标是同步学习 **C++ 语言与标准库、Drogon 框架、后端开发知识**，提升独立设计、实现、验证和排查问题的能力。
 >
-> **当前阶段**：用户 CRUD、用户与任务关联、WorkerQueue W1/W2 和 DatabaseInit 已实现并有运行证据。学习者表示“大概能看懂”初始化工具，记录为自述初步理解，不能等同于独立实现。A2.1 配置入口代码已提交，**验收待做**：确认默认配置监听 5555、指定测试配置监听 5556，并验证测试库写入不会影响开发库。暂不扩队列或增加重复业务接口。
+> **当前阶段**：用户 CRUD、用户与任务关联、WorkerQueue W1/W2、A2.2 测试地址参数化和 T1 初始化事务已有实现与运行证据。T1 构建与 7 项临时检查通过，包括 SQL 失败及 COMMIT 失败后的回滚。T2.1 的独立 TransactionDemo 已实现并提交，**隔离数据库验收待做**：用 Drogon 事务和同步 Mapper 批量插入两个任务，练习 shared_ptr 持有关系、提交回调和 promise/future。之后再接入异步 Service 与 HTTP，暂不扩队列或重复业务接口。
 
-- 最后核对：**2026-10-10**。
-- 当前代码基线：`main` @ `a05f13b`（feat: make server listener configurable）；A1 工具提交为 `80abb87`；历史验证分别记录当时基线。
-- 最新核对：A1 工具与 A2.1 配置入口已分成独立代码提交；本文记录这两项状态。A2.1 修改尚未在本轮构建或运行。
-- 维护范围：按用户要求准备提交并推送；静态检查发现并修正多余命令行参数仍会启动默认服务，以及开发 JSON 中监听端口类型不符合 Drogon 配置约定的问题；保留原有 SQLite 启动失败处理。本轮未运行构建、CTest 或 HTTP 检查。A1 的 16 项验证为上一轮证据。
+- 最后核对：**2026-10-11**。
+- 当前代码基线：`main` @ `8df1ea5`（feat: add Drogon transaction demo）；本轮另提交 T1 初始化事务 `f628dbe` 和 A2.2 测试地址 `d15598e`。历史验证分别记录当时基线。
+- 最新核对：T1、A2.2 与 TransactionDemo 已分别提交；TransactionDemo 的构建和正常/失败模式运行验收仍待做。
+- 维护范围：本轮静态评审修正 TransactionDemo 的模型源文件大小写、检查提交回调结果并限制等待时间；`git diff --check` 通过，未运行构建或测试。T1 的 7 项临时检查及 T2.1 API/参考程序验证是前序证据，见 4.9；临时审查材料已清理。
 - 环境：macOS Apple Silicon；本机 Drogon **1.9.13**（Homebrew）、SQLite、AppleClang 21；本次构建选择 C++20。
 
 ## 1. 使用与维护方式
@@ -78,16 +78,16 @@
 | `GET /debug/primes?limit=...` | 手写单工作线程 WorkerQueue 计算素数；范围 2～5,000,000；Full/Stopped 返回 503，InvalidTask 映射 500；拒绝回滚计数 | W2 正常/非法/并发/Full/Stopped 通过；InvalidTask 的 500 为静态评审确认，真实 handler 总提交非空任务，未强制触发该 HTTP 分支；未验证完整服务关闭行为 |
 | `GET /debug/compute/stats` | 互斥锁保护 submitted/running/completed；queued 由三者计算；提交拒绝回滚 submitted | W1 的 106 次并发快照满足计数关系，观察到运行/排队；结束后 3/0/3/0；停止后拒绝计数为零 |
 | `utils/WorkerQueue` | 手写单线程有界等待队列；PostResult 表达接受/满/停止/空任务；边界已修正为 >= | W2 构建与旧演示 1/1；确定性容量和多提交者检查通过，见 4.4；未验证并发 stop 或工作线程自停 |
-| `DatabaseInit` | 独立工具读取两份 SQL，初始化参数指定的 SQLite 文件；RAII 关闭连接；失败非零退出 | A1 构建与 16 项临时检查通过，见 4.5；不是新注册的 CTest，不启动 HTTP，不迁移已有表结构 |
-| 服务配置入口 | `main.cc` 接受可选配置路径；开发配置监听 5555，测试配置监听 5556 | 本轮只做静态检查，未构建或启动服务；测试仍未自动选择配置、端口或进程生命周期 |
+| `DatabaseInit` | 独立工具读取两份 SQL；RAII 关闭连接及失败回滚；两份脚本全部成功才提交 | A1 16 项及 T1 7 项临时检查通过，见 4.5/4.9；不是新注册的 CTest，不启动 HTTP，不升级已有表结构 |
+| 服务配置入口 | `main.cc` 接受可选配置路径；开发配置监听 5555，测试配置监听 5556 | A2.2 曾在临时库和随机端口上完成 8/8 验收，见 4.8；测试仍未自动选择配置、端口或进程生命周期 |
 
 WorkerQueue 已用于 `/debug/primes`，主服务使用默认等待容量 32，容量不计正在执行的任务。W2 已验收；暂不扩线程池、取消或关闭策略，以新的学习内容继续推进。
 
 ### 2.3 尚未完成的能力
 
-- 初始 schema 已有可重复的 DatabaseInit 入口；尚无迁移版本管理、测试服务自动启动与清理、测试数据库隔离。
+- 初始 schema 已有可重复的 DatabaseInit 入口；尚无迁移版本管理及测试服务自动启动/清理。测试库隔离有手工验收证据，但 CTest 尚未自动准备和清理独立环境。
 - name/age/title 长度等业务规则及完整边界验证。
-- 显式多语句事务与回滚练习、索引效果验证、并发场景验证。
+- 业务层批量事务尚未验收；T2.1 独立演示代码已提交，待用隔离数据库验证提交和回滚。索引效果及并发场景仍待验证。
 - 认证、授权、密码处理、Filter；目前路径中的 userId 由请求者提供。
 - 协程、部署与系统性性能排查；配置文件仍按进程工作目录解析。
 - 面向使用者的 README/API 说明；本文承担学习进度与交接用途。
@@ -146,10 +146,10 @@ HTTP 请求 → Drogon 路由 → UserController
 | `models/` | 生成的 Users/Tasks ORM 模型；model.json 指向 users/tasks 表 |
 | `migrations/` | 两份建表 SQL；tasks 含外键、ON DELETE CASCADE、completed CHECK 与 user_id 索引 |
 | `tools/init_db.cc` | 独立 DatabaseInit：先读取两份 SQL，再打开指定数据库、启用工具连接外键、执行完整脚本；RAII 关闭连接，成功 0/失败 1 |
-| `utils/`、`experiments/` | WorkerQueue 实现与独立演示；主服务与 WorkerQueueDemo 均编译队列实现 |
-| `test/test_main.cc` | 7 项 HTTP 集成测试，硬编码访问 127.0.0.1:5555 |
-| `test/config.json` | 指定 127.0.0.1:5556 与 test/test_drogon_backend.db；现有测试 main 没有加载它，文件存在不表示测试数据库已隔离 |
-| `CMakeLists.txt` | 主服务、WorkerQueueDemo、DatabaseInit 与 HTTP 测试；已移除 MiniBackend 的构建依赖 |
+| `utils/`、`experiments/` | WorkerQueue 实现与 WorkerQueueDemo；另有待验收的 TransactionDemo 独立事务实验 |
+| `test/test_main.cc` | 7 项 HTTP 集成测试，共用 makeTestClient；默认访问 127.0.0.1:5556，DROGON_TEST_URL 可覆盖；只启动客户端事件循环 |
+| `test/config.json` | 主服务用参数加载时监听 127.0.0.1:5556、使用 test/test_drogon_backend.db；测试客户端不加载此配置，服务仍需手工启动 |
+| `CMakeLists.txt` | 主服务、WorkerQueueDemo、DatabaseInit、TransactionDemo 与 HTTP 测试；已移除 MiniBackend 的构建依赖 |
 
 当前规模可以保留 Service 直接使用 Mapper 的设计。出现数据访问复用、业务规则复杂化或替换存储的实际需求时，再评估 Repository；这是学习建议，不是需要机械执行的分层要求。
 
@@ -224,23 +224,48 @@ ctest --test-dir /private/tmp/drogon-doc-review-l2g8a9rm/build --output-on-failu
 
 ### 4.6 当前项目的常规运行方式
 
-下面是**现状的手工流程**，会读写开发库；后续任务应改为独立测试环境。命令从 DrogonBackend 目录执行，不能在 Backend_Learning 根目录直接启动二进制并期待找到同一份配置。
+下面是**当前的手工测试流程**，服务使用测试库，客户端访问测试端口。命令从 DrogonBackend 目录执行，不能在 Backend_Learning 根目录直接启动二进制并期待找到同一份配置。
 
 ```bash
 cd /Users/tonycoder/Backend_Learning/DrogonBackend
 cmake -S . -B build
 cmake --build build --parallel 4
 # 对没有初始化过的数据库，先运行初始化工具
-./build/DatabaseInit drogon_backend.db migrations
+./build/DatabaseInit test/test_drogon_backend.db migrations
 # 在一个终端启动服务；在另一个终端执行下面的 CTest
-./build/DrogonBackend
-ctest --test-dir build --output-on-failure --timeout 15
+./build/DrogonBackend test/config.json
+DROGON_TEST_URL=http://127.0.0.1:5556 ctest --test-dir build --output-on-failure --timeout 15
 ```
 
 - config.json 和数据库文件名按进程工作目录解析。换目录启动可能找不到配置，或打开另一份 SQLite 文件。
 - 建表 SQL 使用 IF NOT EXISTS，重复执行可补建缺失对象，但不能升级已经存在且结构不同的表；尚无迁移版本管理。
 - HTTP 测试只启动客户端事件循环，没有启动包含业务 Controller 的服务；服务未运行时这 7 项测试无法通过。
 - createAndGetTest 未清理创建的用户；errorGetTest 依赖一个固定 ID 不存在；测试失败后的数据清理也没有保证。
+
+### 4.7 A2.1 用户提供的运行证据（2026-10-10）
+
+- 用户提供 curl 输出：127.0.0.1:5556/health 返回 200 与 status=OK；POST /users 创建 ConfigCheck/20 返回 201、id=18。
+- 静态核对：main 支持默认/指定配置路径，多余参数 return 1，保留 advice 内数据库初始化错误处理；两份配置分别监听 5555/5556，数据库路径分别指向开发/测试库，最终 port 均为 JSON 数字。
+- 本轮助手没有重新构建、启动服务或运行测试；上述 curl 是用户提供的证据。未获得写入前后两库计数、默认配置启动或缺配置/非法 JSON/多余参数的实际退出结果。
+- 当前 7 处 HTTP 测试客户端仍固定连接 5555；生成的 CTest 通过 DrogonBackend_test -r <测试名> 选择用例。因此 A2.2 使用环境变量配置地址，保留框架命令行参数。
+
+### 4.8 A2.2 评审与隔离验收（2026-10-11）
+
+- cmake --build build --parallel 4 成功；主程序、DatabaseInit、WorkerQueueDemo 与 HTTP 测试均构建。助手未修改 test/test_main.cc。
+- 显式空 DROGON_TEST_URL：测试程序打印 must not be empty 并退出 1；未设置变量时，用不存在的 -r 测试名只核对启动输出，显示默认 http://127.0.0.1:5556；此检查未执行 HTTP 请求，不等同于默认端口上的完整运行测试。
+- 用 DatabaseInit 初始化全新临时库，复制测试配置并将 filename 改为临时绝对路径、端口改为随机本地端口；启动本轮创建的服务，等待 health=200，再通过环境变量覆盖地址，实际 CTest **8/8 通过**（1 项队列 + 7 项 HTTP），约 0.07 秒。
+- 测试后临时库 users 数量为 1，对应既有 createAndGetTest 未清理记录；原有开发库和 test/test_drogon_backend.db 的逻辑快照在审查前后相同。临时服务已停止，临时文件/数据已清理；这不是给项目增加自动服务编排能力。
+- 为下一步复现初始化原子性缺口：复制两份迁移到临时目录，在第二份末尾追加非法 SQL。现有工具退出 1，但临时库仍留下 users/tasks 两张表。原迁移文件未修改。
+- 已核对 SQLite 官方事务与外键说明：BEGIN/COMMIT/ROLLBACK 的作用、建表属于写入、foreign_keys 应在事务开始前开启；选定 T1，不立即同时实现 HTTP 批量接口。
+
+### 4.9 T1 评审验收与 T2.1 接口核对（2026-10-11）
+
+- 学习者实现 SqliteTransaction，禁止复制、析构 noexcept、COMMIT 成功后才更新 committed_；main 在外键设置之后、两份脚本之前创建事务，成功输出发生在提交之后。静态评审未发现当前调用路径的正确性问题；初始化列表、多余函数定义分号及空格为可选整理，助手未代改。
+- cmake --build build --target DatabaseInit --parallel 4 编译链接成功。本轮没有重跑既有 HTTP CTest。
+- 7 项临时检查全部通过：正常建表及索引、重复初始化保留用户/任务、SQL 中途失败不留新表和新数据、已有库 SQL 失败保留快照、延迟外键导致 COMMIT 失败后新库回滚、已有库 COMMIT 失败保留快照、缺迁移文件时尚未创建目标库。
+- 提交失败检查在临时第二脚本末尾设置 defer_foreign_keys 并插入不存在 owner 的任务；错误指向 Transaction commit，表/数据回滚，直接验证 committed_ 的更新顺序及析构路径。原项目两份数据库逻辑快照均不变；临时目录已删除。
+- 为下一任务核对本地 DbClient.h/Mapper.h 与 Drogon v1.9.13 TransactionImpl.cc：Transaction 继承 DbClient，可交给 Mapper；未回滚的事务对象最终析构时安排 COMMIT；提交结果由回调确认，回滚不触发提交回调。
+- 临时参考程序直接链接现有生成模型与本机 Drogon，警告检查编译成功；同步 Mapper 插入两个任务后退出事务作用域，提交回调到达，两行持久化；--fail 模式第二条未设置 title，NOT NULL 失败并回滚第一条，原两行不变。参考源文件、程序、数据库已清理，不是学习者已实现 TransactionDemo 的证据。
 
 ## 5. 已知问题与关键理解边界
 
@@ -249,7 +274,8 @@ ctest --test-dir build --output-on-failure --timeout 15
 | 问题 | 证据与影响 | 建议处理方式 |
 |---|---|---|
 | 服务自身尚无表结构就绪检查或版本迁移 | 已有独立 DatabaseInit，但忘记先初始化仍会出现空库下用户接口 500；IF NOT EXISTS 不升级旧表 | 先掌握工具执行流程，再在配置/部署实践中明确初始化步骤；表结构版本变化时另学迁移管理 |
-| 测试依赖外部服务和共享库 | 硬编码端口、测试配置未加载、创建测试留下记录 | 先支持明确的运行配置与数据库路径，再编排临时 DB、服务就绪等待、测试、停止和清理 |
+| 测试仍依赖外部服务和已有数据 | 地址已参数化，全新临时库验收 8/8；正常使用仍需手工启动服务，创建测试留下记录 | 保留手工流程，不重引入 Python 项目脚本；自动生命周期和失败清理待实际需要再做 |
+| 初始化工具尚无表版本升级能力 | T1 已解决两份初始脚本的原子提交；IF NOT EXISTS 仍不会升级旧表 | 当前不扩迁移管理；结构发生变化时再引入版本与升级步骤 |
 | 用户业务规则未定义 | 类型校验通过后接受空姓名和负年龄；DB 只有 NOT NULL | 先定义姓名空白/长度、年龄范围和字符串长度口径，再实施规则和边界测试 |
 | 数据库错误和任务边界覆盖不完整 | 缺表仅本次手工验证；任务创建/列表缺完整独立用例 | 补真正区分行为的用例；级联删除需要直接核对子表，不能只看 PATCH 的 404 |
 | 外键初始化依赖单连接 | main 通过客户端执行一次 PRAGMA；当前只有一个连接 | 保留并说明当前约束；扩连接或改客户端模式前，核对框架支持并验证每个连接的初始化 |
@@ -264,7 +290,7 @@ ctest --test-dir build --output-on-failure --timeout 15
 4. **数据库存在性与一致性**：创建任务先查 owner，再插入，中间仍可能被删除。FK 是最终数据约束；当前 Controller 将查找失败或 ForeignKeyViolation 映射为 404。Drogon 1.9.13 SQLite 驱动提供该异常映射，但本次没有复现这条竞态路径。[对应版本驱动源码](https://github.com/drogonframework/drogon/blob/v1.9.13/orm_lib/src/sqlite3_impl/Sqlite3Connection.cc)
 5. **外键是连接设置**：在一个连接上启用 PRAGMA 不等于初始化整个连接池；当前单连接配置与检查有效，不能直接推广到多连接或其他客户端模式。[SQLite 官方说明](https://www.sqlite.org/foreignkeys.html#fk_enable)
 6. **任务归属条件不等于身份授权**：`id AND user_id` 的单条 UPDATE 保证任务属于 URL 指定的用户，避免先查任务再更新的间隙；尚无机制证明请求者就是该用户。授权要以后从可信身份取得 userId，并验证访问权。
-7. **幂等性不等于多语句事务**：重复 PUT/PATCH 得到相同最终状态是接口语义；多条写入全部成功或全部回滚是另一个能力，当前尚无显式事务练习。
+7. **幂等性不等于多语句事务**：重复 PUT/PATCH 得到相同最终状态是接口语义；T1 已在初始化工具中练习多语句事务，但业务接口尚无批量事务。Drogon 事务的最终持有者释放与提交回调是接下来的学习点。
 8. **统计值的边界**：completed 在计算结束时增加，发生于构造/回传 HTTP 响应之前；它不是客户端成功收到响应的数量。queued 是逻辑差值，还包含已记 submitted、尚未实际入队或已取出但尚未计 running 的短暂窗口。现有锁保障共享计数访问；W2 的容量与 PostResult 拒绝回滚已验证，尚无取消和任务异常补偿机制。容量判断使用队列锁下的 tasks_.size()，不能用 stats 的 queued 推断可接收数量。
 9. **WorkerQueue 的停止约定**：stop 由拥有者线程调用，等待已接受任务执行完；现有演示验证顺序重复 stop。不能由此声称多个线程同时 stop 或工作线程调用 stop 都安全，也不能推断框架队列具有相同语义。
 
@@ -304,7 +330,7 @@ ctest --test-dir build --output-on-failure --timeout 15
 | L3 | 对照 WorkerQueue 和计算统计理解 RAII、锁与线程生命周期 | 能解释等待谓词、为什么在锁外执行任务、析构如何等待线程，以及拥有对象和同步数据的区别 |
 | L4 | 阅读 Mapper<Model> 的小段接口与一个容器调用 | 能解释模板类型参数、实例化、常见类型不匹配；有实际需要时再练习泛型封装与完美转发 |
 
-W1/W2 已验收，A1 工具实现与运行检查通过，学习者自述初步能看懂；当前下一项选 **A2.1**，把 argc/argv 和异常边界用于真实服务入口，建立开发/测试配置切换。L1～L4 保留为薄弱点补充，不重启概念问答或队列扩展。
+W1/W2、A1、A2.2 和 T1 已有实现与运行证据；当前下一项选 **T2.1**，在独立 main 中批量插入真实任务，掌握 Drogon 事务持有关系，再接入异步业务链路。L1～L4 保留为薄弱点补充，不重启概念问答或队列扩展。
 
 ### 第一阶段：建立可重复的实践环境
 
@@ -323,9 +349,9 @@ W1/W2 已验收，A1 工具实现与运行检查通过，学习者自述初步�
 - **SQLite 接口**：已核对本机 sqlite3.h 和官方 sqlite3_exec 文档，exec 可执行完整的多语句脚本；不要用字符串按分号拆 SQL。open 即使失败也可能产生句柄，检查返回值前先用 unique_ptr 接管，错误信息在句柄有效时复制。exec 的 errmsg 参数使用 nullptr，通过 sqlite3_errmsg 获取信息，避免额外错误字符串释放。
 - **运行验收**：上述新库、重复初始化与关键错误路径已由助手实际验证，16 项通过；学习者理解尚待巩固。
 - **衔接**：用户已表示初步能看懂，进入 A2.1；初始化工具将直接用于准备测试库。运行临时库和错误目录仍可作为理解补充，不把连续概念问答作为推进前提。
-- **边界**：IF NOT EXISTS 只支持当前初始 schema 的重复建表，不能升级旧表；本轮不实现迁移版本管理或跨脚本全部回滚。工具连接的 PRAGMA 不替代 Drogon 连接的设置，保留现有 startup advice。之后再选择配置路径/独立服务测试或事务练习，不把本工具当作这些能力已完成。
+- **边界**：IF NOT EXISTS 只支持当前初始 schema 的重复建表，不能升级旧表；A1 当时未实现迁移版本管理或跨脚本回滚，后者已由 T1 补上（见 4.9）。工具连接的 PRAGMA 不替代 Drogon 连接的设置，保留现有 startup advice。
 
-### A2.1：配置文件参数与独立监听端口（实现已提交，验收待做）
+### A2.1：配置文件参数与独立监听端口（正常请求已有证据）
 
 - **实施方式**：学习者修改 main.cc、config.json、test/config.json；提交前评审修正多余参数未退出的问题，并保留原有数据库启动失败处理。
 - **目标**：无参数启动读取 config.json；单个参数指定配置文件；多余参数打印用法并返回 1；加载错误由 main 的 catch 输出原因并非零退出。
@@ -333,8 +359,39 @@ W1/W2 已验收，A1 工具实现与运行检查通过，学习者自述初步�
 - **Drogon 机制**：本机 HttpAppFramework.h 的 loadConfigFile 接口和对应版本源码已核对；缺配置或解析失败抛 runtime_error。配置 listeners 负责注册监听地址/端口，删除 main 里硬编码的 addListener，保留外键 advice 与 app.run。
 - **配置**：开发配置 listeners 为 0.0.0.0:5555；测试配置 listeners 为 127.0.0.1:5556，数据库 filename 为 test/test_drogon_backend.db，并显式保持 connection_number=1、is_fast=false 与一个 IO 线程。Drogon 配置要求 listener 的 port 为整数，开发配置已统一为整数格式（[配置说明](https://github.com/drogonframework/drogon/wiki/ENG-11-Configuration-File)）。
 - **路径约定**：运行时从 DrogonBackend 根目录启动；SQLite 的相对 filename 按进程工作目录解析，不按 test/config.json 的目录解析。更通用的路径解析留待有实际需求再处理。
-- **当前验收状态**：本轮没有构建或运行 HTTP；上述内容仍是待执行验收标准，不能因配置文件存在而认定已完成。
-- **边界与下一步**：现有 7 项 HTTP 测试仍固定访问 5555；先手动验证 5556 与独立数据库，之后 A2.2 再让测试客户端选择地址并安排独立服务生命周期，用户偏好手工步骤优先，不自动重新引入 Python 项目脚本。
+- **当前验收状态**：用户提供测试端口 health=200、创建用户=201 输出，见 4.7；助手本轮未构建或运行 HTTP。两库计数对照和入口错误路径未获本轮运行证据，不能认定整个 A2 已完成。
+- **边界与下一步**：现有 7 项 HTTP 测试仍固定访问 5555；进入 A2.2，让客户端选择地址并手工验证测试库隔离。用户偏好手工步骤优先，不自动重新引入 Python 项目脚本。
+
+### A2.2：统一测试地址与环境变量（已通过隔离验收）
+
+- **实施方式**：学习者亲手修改 test/test_main.cc；助手提供局部代码和验证步骤，本轮不代写实现。
+- **目标**：测试地址默认 http://127.0.0.1:5556；启动时可通过 DROGON_TEST_URL 覆盖；7 个测试通过同一个 makeTestClient 函数创建客户端，保持 Drogon test::run(argc, argv) 的 -r 参数不变。
+- **C++ 知识**：std::getenv 的 nullptr 表示变量未设置；空字符串与未设置是两个状态；返回的 C 字符串由环境持有，将值复制到 std::string。匿名命名空间限定本文件使用；在启动事件循环线程前完成地址赋值，运行中只读，避免并发改写共享配置。
+- **修改点**：增加 cstdlib/iostream；匿名命名空间内定义默认地址和客户端工厂；main 中读取环境变量、拒绝显式空值并输出最终地址；替换 7 处固定地址，保留现有断言和事件循环生命周期代码。
+- **验收**：构建成功；外部服务用 test/config.json 运行在 5556；DROGON_TEST_URL=http://127.0.0.1:5556 ctest --test-dir build --output-on-failure --timeout 15 全部通过；测试前后开发库 users 数量不变。默认也访问 5556；显式空变量在启动线程前报错并非零退出。
+- **边界与衔接**：本项不实现自动启停服务、自动清理或完整 URL 解析，用户保留手工流程。之后已通过 T1 和 T2.1 继续事务练习；自动化测试环境仍待有实际需要时再补，避免长期停留在重复测试整理。
+- **实际状态**：学习者按步骤完成，本轮隔离验收通过，见 4.8；没有新的机制复述证据。集中收住测试整理，改以 T1 练习事务；项目级自动编排不视为已实现。
+
+### T1：DatabaseInit 的事务与析构回滚（已验收）
+
+- **具体问题**：执行第二脚本失败时，第一脚本甚至第二脚本中成功执行的 SQL 已留在数据库；已在临时库复现，不是推测。
+- **范围**：学习者只修改 tools/init_db.cc。在 executeSql 定义之后、匿名命名空间内部新增 SqliteTransaction，不改 Service、Controller 或生成模型；之后再用 Drogon 的事务机制实现批量创建任务。
+- **类约定**：explicit 构造接收非拥有 sqlite3* 并通过 executeSql 执行 BEGIN；commit 通过 executeSql 执行 COMMIT，成功后才设 committed_=true；noexcept 析构在未提交时直接 sqlite3_exec 执行 ROLLBACK，不调用可能抛异常的 executeSql。禁止复制构造和复制赋值，避免两个对象重复管理同一事务；本项不添加移动能力。
+- **生命周期**：db 的 unique_ptr 负责关闭连接，事务对象只借用句柄。main 先创建 db、开启外键，再创建事务对象，执行两份 SQL 并提交，然后才打印成功；异常展开时事务先析构并回滚，db 后析构关闭连接。foreign_keys 不能移进事务，因为事务中改变开关没有效果。
+- **验收**：全新临时库正常初始化后有 users/tasks/idx_tasks_user_id；重复初始化保留既有记录；临时第二脚本中途失败返回 1，新库不留下两张业务表；在已有库上失败保留原有数据。失败仍可能留下空数据库文件，不要求自动删除文件；回滚错误不从析构抛出。
+- **理解目标**：把 RAII 用于事务状态，而不只用于释放指针；理解 explicit、=delete、noexcept、提交标志更新顺序、借用句柄与逆序析构。先完成这一小步，下一轮评审后再安排批量任务接口。
+- **实际状态**：学习者完成，构建和 7 项临时检查通过，见 4.9；目前没有新的独立机制复述证据，不以代码通过认定完全掌握。
+
+### T2.1：Drogon 事务与批量任务独立实践（实现已提交，验收待做）
+
+- **范围**：学习者新增 experiments/transaction_demo.cc 与 CMake 的 TransactionDemo 目标，链接 models/Tasks.cc、models/Users.cc 和 Drogon::Drogon；不修改业务 Controller/Service。
+- **输入**：TransactionDemo <临时数据库路径> [--fail]；实验路径先采用不含空格的 mktemp 目录，固定 owner id=1，由手工初始化临时库并插入；--fail 是实验故障注入，不进入生产接口。
+- **步骤**：用 newSqlite3Client 创建一个普通单连接客户端，设置超时并在事务外开启外键；shared_ptr<promise<bool>> 与 future 保存提交结果；独立花括号内创建 newTransaction(提交回调)、Mapper<Task> 和 vector<string>，逐条同步插入；插入异常时 rollback 后重新抛出，错误路径直接退出，不等待提交回调。
+- **提交**：事务作用域外再等待提交结果；使用有限 wait_for 检查就绪后 get，确认提交成功才打印成功。Mapper 持有同一个事务对象，必须同时释放 Mapper 和 transaction；提交回调只捕获 promise，不捕获 transaction，避免引用环。
+- **C++/框架知识**：shared_ptr<派生类> 到 shared_ptr<基类> 的转换；Mapper 的对象持有关系；vector 的顺序访问；按值捕获智能指针延长异步对象生命；promise/future 将提交回调结果交回主线程。这里同步调用只用于独立 main，接入 HTTP 后使用异步事务接口。
+- **验收**：正常模式提交两个任务，数量从 0 到 2；失败模式第二条故意不设置 title，触发数据库 NOT NULL 后退出 1，数量仍为 2，不保留本批第一条；开发和现有测试库不被使用。对象未销毁前不等待提交结果；回滚路径不等待不会执行的提交回调。
+- **当前状态**：实现已在 `8df1ea5` 提交。静态评审修正了 `Tasks.cc` 的大小写、提交回调布尔结果检查和有限等待；本轮只做差异空白检查，没有构建或运行。需在全新临时库完成正常与 `--fail` 两种模式及数据核对后，才能标记验收通过。
+- **下一步**：评审通过后把批量创建放入 TaskService，再接 HTTP 数组校验与响应；不机械复制同步实验进请求线程。
 
 A2/A3 可结合 promise/future、容器、对象生命周期或资源清理继续学习；具体机制按实施方案决定。
 
@@ -384,6 +441,10 @@ A2/A3 可结合 promise/future、容器、对象生命周期或资源清理继�
 | 2026-10-10 | 用户要求补全 DatabaseInit，助手实现与验证 | main@04ae7df；学习者已有 CMake 入口和空文件；完整构建、工具警告检查及 16 项临时检查通过，见 4.5；未运行 HTTP、未触碰开发库 | 用户说明此前解释看不懂、数据库操作不熟；本轮代码由助手完成，不能据此认定其掌握文件 I/O/RAII/SQL | 先沿 main 理解读取、连接、执行与关闭，亲手运行临时库；之后 A2 配置与测试隔离 |
 | 2026-10-10 | 用户表示初步能看懂 A1；选定 A2.1 | main@04ae7df；只读核对 main/两份配置/测试固定 5555，核对本机头文件与 v1.9.13 配置加载源码；本轮仅更新文档，未改实现或运行检查 | 初步理解为自述，没有新的独立实现或复述证据；在入口参数中继续实践 argc/argv 和错误处理 | 下一项亲手实现配置参数与 JSON 监听端口，用 5556 和测试库验收；CTest 地址与进程编排之后处理 |
 | 2026-10-10 | 提交 A1 与 A2.1 初始实现 | `80abb87` 添加 DatabaseInit；`a05f13b` 增加可选配置路径与监听配置。静态复核后让多余参数非零退出、恢复数据库 advice 的错误处理，并将开发端口设为整数；差异空白检查通过。本轮未运行构建或 HTTP | 没有新的学习者独立实现或复述证据 | A1 保留上一轮 16 项验证；A2.1 待验收默认 5555、测试 5556、数据库隔离和错误配置退出；CTest 服务编排留给 A2.2 |
+| 2026-10-10 | A2.1 正常请求成功；选定 A2.2 | 本轮核对时 main@6535922；用户提供 5556 health=200、创建 ConfigCheck=201；只读核对入口、配置与 7 处固定地址；本轮未构建或运行测试，见 4.7 | 已有参数入口实践；独立解释与错误路径实践仍待观察；下一项学习 C 字符串复制、环境变量与线程启动前的配置初始化 | 测试服务配置生效，但 CTest 仍访问开发 5555；下一项统一测试地址，手工运行并核对开发库不变 |
+| 2026-10-11 | A2.2 评审验收；选定 T1 | main@6535922 上 test_main 未提交修改；构建成功，临时新库/随机端口 CTest 8/8；空变量退出 1、未设置时默认地址输出正确；原有两库逻辑快照不变；临时 SQL 错误复现残留表，见 4.8；本轮只改本文 | 学习者按指导完成 getenv/string 与统一客户端；没有新的独立解释证据；下一项亲手写事务类并练习异常展开与析构顺序 | 测试整理先收住；用初始化工具学习提交/回滚，再进入批量创建任务；自动服务生命周期尚未加入项目 |
+| 2026-10-11 | T1 事务类验收；选定 T2.1 | main@6535922 上 init_db 未提交修改；目标构建成功、7 项临时检查通过，包含 SQL 失败和 COMMIT 失败；原有两库不变；临时 Drogon 批量插入参考程序编译并验证正常/失败；见 4.9；未改项目实现或重跑 HTTP | 学习者按步骤写出析构回滚与正确提交标志；构造函数初始化列表属可选整理；下一项练习共享持有与回调结果通信 | 先独立 main 掌握 Drogon 的自动提交时机与同步 Mapper，再异步接入批量业务；临时参考程序不代表学习者完成新任务 |
+| 2026-10-11 | 分组提交 T1、A2.2 和 T2.1 实现 | 代码基线 `main@8df1ea5`；T1=`f628dbe`、A2.2=`d15598e`、T2.1=`8df1ea5`。静态评审与 `git diff --check` 通过；本轮未运行构建或测试 | 代码修正由助手完成，不作为新的独立实现或理解证据 | T2.1 的临时数据库正常/失败验收待做；验证前不接入业务 Service/HTTP |
 
 后续记录使用以下格式，简短但可核对：
 
@@ -405,4 +466,4 @@ Drogon / 后端知识、能独立解释/使用的证据：
 - 修正 A/B/C/D 日志的位置与时序解释；区分回调持有方式和响应次数。
 - 保留异步实验的教学价值，将“先删日志”调整为先完善可运行/可验证基础，再按任务整理日志。
 - 增补归属检查与授权、幂等性与事务、计算计数与 HTTP 响应之间的边界，避免把已有雏形当作完整能力。
-- 根据用户补充的目标，将 C++ 语言与标准库纳入明确主线：现有特性映射、独立小实验、每轮知识目标和分开记录的掌握证据；下一项由 A1 调整为 L1，后续交替推进。
+- 根据用户补充的目标，将 C++ 语言与标准库纳入明确主线：现有特性映射、独立小实验、每轮知识目标和分开记录的掌握证据；当时将下一项由 A1 调整为 L1，后续再按仓库进展滚动安排。
