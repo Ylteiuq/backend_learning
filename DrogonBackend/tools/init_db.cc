@@ -95,6 +95,37 @@ namespace
                 "Failed to execute " + context + ": " + sqlite3_errmsg(db));
         }
     }
+
+    class SqliteTransaction
+    {
+    public:
+        explicit SqliteTransaction(sqlite3 *db)
+        {
+            db_ = db;
+            executeSql(db_, "BEGIN;", "Transaction begin");
+        }
+
+        ~SqliteTransaction() noexcept
+        {
+            if (!committed_)
+            {
+                sqlite3_exec(db_, "ROLLBACK;", nullptr, nullptr, nullptr);
+            }
+        }
+
+        SqliteTransaction(const SqliteTransaction &) = delete;
+        SqliteTransaction &operator=(const SqliteTransaction &) = delete;
+
+        void commit()
+        {
+            executeSql(db_, "COMMIT;", "Transaction commit");
+            committed_ = true;
+        }
+
+    private:
+        sqlite3 *db_;
+        bool committed_ = false;
+    };
 }
 
 int main(int argc, char *argv[])
@@ -127,8 +158,13 @@ int main(int argc, char *argv[])
         auto db = openDatabase(databasePath);
 
         executeSql(db.get(), "PRAGMA foreign_keys = ON;", "foreign key setup");
+
+        SqliteTransaction transaction(db.get());
+
         executeSql(db.get(), usersSql, usersFile.string());
         executeSql(db.get(), tasksSql, tasksFile.string());
+
+        transaction.commit();
 
         std::cout << "Database initialized: " << databasePath.string() << '\n';
         return 0;
