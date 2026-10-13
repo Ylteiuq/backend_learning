@@ -2,6 +2,7 @@
 #include <stdexcept>
 #include <string>
 #include <iostream>
+#include <utility>
 
 class FileWriter
 {
@@ -12,8 +13,10 @@ public:
 
     FileWriter(const FileWriter &) = delete;
     FileWriter &operator=(const FileWriter &) = delete;
+    FileWriter &operator=(FileWriter&& other) noexcept;
 
     void write(const std::string &text);
+    void write(const char* text);
     bool isOpen() const noexcept;
 
 private:
@@ -36,6 +39,21 @@ FileWriter::FileWriter(FileWriter &&other) noexcept
     other.file_ = nullptr;
 }
 
+FileWriter& FileWriter::operator=(FileWriter&& other) noexcept
+{
+    if(this == &other)
+    {
+        return *this;
+    }
+    if(file_ != nullptr)
+    {
+        std::fclose(file_);
+    }
+    file_ = other.file_;
+    other.file_ = nullptr;
+    return *this;
+}
+
 FileWriter::~FileWriter() noexcept
 {
     if (file_)
@@ -55,6 +73,19 @@ void FileWriter::write(const std::string &text)
     }
     const auto status = std::fputs(text.c_str(), file_);
     if (status == EOF)
+    {
+        throw std::runtime_error("fputs ending");
+    }
+}
+
+void FileWriter::write(const char* text)
+{
+    if(!isOpen())
+    {
+        throw std::logic_error("file is not open");
+    }
+    const auto status = std::fputs(text, file_);
+    if(status == EOF)
     {
         throw std::runtime_error("fputs ending");
     }
@@ -122,6 +153,18 @@ void movecase()
     }
 }
 
+void moveAssignmentCase()
+{
+    const char* sourcepath = "build/raii_assign_source.txt";
+    FileWriter source(sourcepath);
+    source.write("source start\n");
+    const char* targetpath = "build/raii_assign_target.txt";
+    FileWriter target(targetpath);
+    target.write("target start\n");
+    std::cout << source.isOpen() << '\n' << target.isOpen();
+    target.write("after assignment\n");
+}
+
 int main()
 {
     normalCase();
@@ -135,4 +178,5 @@ int main()
         std::cerr << e.what() << '\n';
     }
     movecase();
+    moveAssignmentCase();
 }
