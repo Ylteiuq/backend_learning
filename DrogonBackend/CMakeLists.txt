@@ -93,6 +93,11 @@ target_include_directories(WorkerQueueDemo
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(WorkerQueueDemo PRIVATE Threads::Threads)
 
+# 为独立实验生成编译参数，供编辑器使用。
+add_executable(TimedInvokeDemo EXCLUDE_FROM_ALL
+    experiments/timed_invoke_demo.cc)
+target_compile_features(TimedInvokeDemo PRIVATE cxx_std_20)
+
 enable_testing()
 add_test(NAME WorkerQueueDemo COMMAND WorkerQueueDemo)
 set_tests_properties(WorkerQueueDemo PROPERTIES TIMEOUT 10)
